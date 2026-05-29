@@ -271,10 +271,16 @@ def create_app(deps: Deps) -> FastAPI:
                                 res = run_tool(obj["tool"], obj.get("args", {}))
                                 if "error" not in res:
                                     yield _sse("tool", name=obj["tool"], args=obj.get("args", {}), result=res)
-                                    messages[-1]["content"] += (
-                                        "\n\n# Verified calculation (use these exact figures)\n"
-                                        f"{obj['tool']}({json.dumps(obj.get('args', {}))}) = {json.dumps(res)}"
+                                    note = (
+                                        "A verified engineering calculator has already computed the exact result "
+                                        "for this question:\n"
+                                        f"{obj['tool']}({json.dumps(obj.get('args', {}))}) = {json.dumps(res)}\n"
+                                        "Report these exact figures as the answer. You may show the governing "
+                                        "formula and explain the inputs, but state the verified numeric result "
+                                        "above verbatim and do NOT redo the arithmetic or produce a different "
+                                        "number.\n\n"
                                     )
+                                    messages[-1]["content"] = note + messages[-1]["content"]
                         except Exception:
                             pass
 
