@@ -2,11 +2,14 @@
 
 # 🛢️ Naija-Petro
 
-**Domain-specialised petroleum-engineering LLMs + a dynamic, citation-grounded RAG assistant for the Nigerian oil & gas context.**
+**A Nigeria-aware petroleum-engineering AI: fine-tuned Qwen3 models plus a dynamic, citation-grounded RAG assistant with exact engineering calculators.**
 
-[![Model (8B)](https://img.shields.io/badge/🤗%20Model-naija--petro--8b-yellow)](https://huggingface.co/Shinzmann/naija-petro-8b)
-[![Model (32B)](https://img.shields.io/badge/🤗%20Model-naija--petro-yellow)](https://huggingface.co/Shinzmann/naija-petro)
+[![Live demo](https://img.shields.io/badge/Live-app-16a34a)](https://peniel-tish--naija-petro.modal.run)
+[![Model 8B](https://img.shields.io/badge/🤗%20Model-naija--petro--8b-yellow)](https://huggingface.co/Shinzmann/naija-petro-8b)
+[![Model 32B](https://img.shields.io/badge/🤗%20Model-naija--petro-yellow)](https://huggingface.co/Shinzmann/naija-petro)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0)
+
+Built by **Ashinze Emmanuel** · [GitHub](https://github.com/Mystique1337/naija-petro) · [Hugging Face](https://huggingface.co/Shinzmann)
 
 </div>
 
@@ -14,83 +17,143 @@
 
 ## What this is
 
-Naija-Petro is a pair of [Qwen3](https://huggingface.co/Qwen) models fine-tuned (QLoRA, [Unsloth](https://github.com/unslothai/unsloth)) on **20,000+ synthetic petroleum-engineering instruction–response pairs**, plus the full pipeline that produced them and a production **retrieval-augmented assistant** that grounds answers in **verifiable Nigerian sources**.
+Naija-Petro is a pair of [Qwen3](https://huggingface.co/Qwen) models fine-tuned (QLoRA via [Unsloth](https://github.com/unslothai/unsloth)) on 20,000+ synthetic petroleum-engineering instruction-response pairs, plus the full data pipeline that produced them and a production retrieval-augmented assistant.
 
-The base models were trained on *general / global* petroleum knowledge — drilling, reservoir, production, completions, EOR, well testing, geoscience. They are strong on fundamentals but **weak on Nigeria-specific facts** (regulation, the Petroleum Industry Act 2021, NUPRC/NMDPRA, NNPC, local fields and fiscal terms). The RAG layer closes that gap: it fetches authoritative Nigerian resources on demand, converts them to clean markdown, cites them, and **continuously grows its own knowledge base** as it is used.
+The base models learned **general, global** petroleum knowledge (drilling, reservoir, production, completions, EOR, well testing, geoscience). They are strong on fundamentals but weak on **Nigeria-specific** facts: regulation, the Petroleum Industry Act 2021, NUPRC, NMDPRA, NNPC, local fields, and fiscal terms. The RAG layer closes that gap. It fetches authoritative Nigerian sources on demand, converts them to clean markdown, cites them, and grows its own knowledge base as it is used. For numeric questions it calls deterministic calculators so the figures are exact, not estimated.
+
+Live app: **https://peniel-tish--naija-petro.modal.run**
+
+## Features
+
+- **Dynamic, self-updating RAG.** Hybrid retrieval (dense vectors plus Postgres full-text, fused with Reciprocal Rank Fusion). When local coverage is weak it fetches live from authoritative Nigerian sources, ingests them, and re-retrieves; a background job keeps growing the store after every query.
+- **Verifiable citations.** Inline numbered citations and a sources panel with site favicons and trust tiers (official, reference, news).
+- **Engineering calculators (tool calling).** For a computational question the model picks a calculator and the exact result is computed and shown: Arps decline, OOIP and OGIP volumetrics, Vogel IPR, Darcy radial inflow, hydrostatic pressure, Standing bubble point and Bo, gas FVF, productivity index, exponential EUR, recovery factor.
+- **Reasoning trace** (optional toggle), **field/SI unit** toggle, **light and dark** themes, fully responsive.
+- **Upload your own documents.** Drop in a PDF or text file and ask questions grounded in it.
+- **Saved chat history** (anonymous, per browser), **copy and export**, and **streaming** answers with KaTeX math.
+- **Feedback loop.** Thumbs and an optional comment store the full exchange in Supabase as training and preference data; `scripts/export_feedback.py` turns it into SFT and DPO files for fine-tuning.
+- **Optional email capture** and a **feature-request board**.
+- **Usage analytics** in Supabase and **Langfuse** tracing of every turn.
+- **Cost controlled.** One GPU only (capped), CPU embeddings, fast scale-down, scale to zero when idle.
 
 ## Models
 
 | Variant | Base | Use case | Links |
 |---|---|---|---|
-| **naija-petro-8b** | Qwen3-8B | Fast inference, free/low-cost deployment (used in the RAG app) | [model](https://huggingface.co/Shinzmann/naija-petro-8b) · [GGUF](https://huggingface.co/Shinzmann/naija-petro-8b-GGUF) |
-| **naija-petro** (32B) | Qwen3-32B | Highest quality, GPU required | [model](https://huggingface.co/Shinzmann/naija-petro) · [GGUF](https://huggingface.co/Shinzmann/naija-petro-GGUF) |
+| **naija-petro-8b** | Qwen3-8B | Fast inference, low-cost deployment (served by the app) | [model](https://huggingface.co/Shinzmann/naija-petro-8b), [GGUF](https://huggingface.co/Shinzmann/naija-petro-8b-GGUF) |
+| **naija-petro** (32B) | Qwen3-32B | Highest quality, needs a GPU | [model](https://huggingface.co/Shinzmann/naija-petro), [GGUF](https://huggingface.co/Shinzmann/naija-petro-GGUF) |
+
+## How a query flows
+
+1. Embed the query with `nomic-embed-text-v1.5` (on CPU) and run hybrid retrieval over Supabase pgvector (vectors plus full-text, fused with RRF).
+2. Score local coverage. If it is weak, fetch live: Tavily search biased to authoritative Nigerian domains, clean to markdown (`trafilatura` for HTML, `pymupdf4llm` for PDF), structure-aware chunking, embed, upsert with SHA-256 dedup, then re-retrieve. A background job also enriches after every query.
+3. If the question is computational, a calculator is selected and the exact result is injected so the answer reports verified figures.
+4. The 8B model, served with vLLM on Modal (OpenAI-compatible, streaming), answers with inline citations.
+5. The turn is logged to Supabase analytics and traced to Langfuse.
+
+### Stack
+
+`Modal` (serverless GPU) · `vLLM` · `FastAPI` (SSE streaming) · self-hosted `Supabase` and `pgvector` on Railway · `nomic-embed-text-v1.5` · `Tavily` · `trafilatura` / `pymupdf4llm` · `Langfuse` · `Tailwind` and `Alpine` frontend with `KaTeX`.
 
 ## Repository layout
 
 ```
 naija-petro/
 ├── notebooks/        Data + training pipeline (Colab/Jupyter)
-│   ├── 01_corpus_builder.ipynb     Scrape & consolidate the seed corpus
+│   ├── 01_corpus_builder.ipynb     Scrape and consolidate the seed corpus
 │   ├── 02_data_designer.ipynb      NVIDIA Data Designer synthetic generation
 │   ├── 03_eda.ipynb                Exploratory analysis of the 20K dataset
-│   ├── 04_finetune_8b.ipynb        Fine-tune, evaluate & deploy the 8B model
-│   └── 05_finetune_32b.ipynb       Fine-tune, evaluate & deploy the 32B model
+│   ├── 04_finetune_8b.ipynb        Fine-tune, evaluate, deploy the 8B model
+│   └── 05_finetune_32b.ipynb       Fine-tune, evaluate, deploy the 32B model
 ├── modal_app.py      Modal entrypoint (vLLM serving, encoders, ASGI app, jobs)
-├── app/              Dynamic-RAG assistant
-│   ├── api/                        FastAPI routes (chat, SSE streaming, stats)
-│   ├── rag/                        Embeddings, retrieval, ingestion, sources, prompts
-│   ├── frontend/                   Streaming chat UI with a citations panel
-│   ├── config.py                   Env-driven settings + system prompt
+├── app/
+│   ├── api/server.py               FastAPI routes (chat SSE, tools, upload, feedback, history)
+│   ├── rag/                        embeddings, retrieval, ingestion, chunking, sources, prompts, db
+│   ├── tools/calculators.py        deterministic engineering calculators
+│   ├── frontend/index.html         streaming chat UI
+│   ├── config.py                   env-driven settings + system prompt
 │   └── observability.py            Langfuse tracing (best-effort)
-├── supabase/         pgvector schema + hybrid-search RPC
-├── hf_cards/         Source-of-truth Hugging Face model & dataset cards
-├── scripts/          Notebook scrubber, card pusher, KB seeder, Modal secret setup
-├── .env.example      All configuration / secrets (copy to .env)
-└── README.md
+├── supabase/schema.sql   pgvector schema, hybrid_search RPC, analytics, feedback, history
+├── hf_cards/             Hugging Face model and dataset cards
+├── scripts/              scrub_notebooks, push_cards, seed_kb, setup_modal_secret, export_feedback
+├── .env.example          all configuration and secrets (copy to .env)
+└── requirements.txt
 ```
-
-## The RAG assistant
-
-A query flows through a **dynamic, self-updating** pipeline (full design in [`app/`](app/)):
-
-1. Embed the query (`nomic-embed-text-v1.5`) and run **hybrid retrieval** over Supabase pgvector — dense vectors **+** Postgres full-text, fused with Reciprocal Rank Fusion, then reranked.
-2. Score local **coverage**. If the knowledge base can't answer confidently, fetch live: **Tavily** search restricted to authoritative Nigerian domains → clean markdown (`trafilatura` / `pymupdf4llm`) → chunk → embed → **upsert** (SHA-256 dedup) → re-retrieve.
-3. After **every** query, a non-blocking background job enriches the store, so the system keeps getting better with use.
-4. The 8B model (served with **vLLM** on Modal, OpenAI-compatible) streams an answer with **inline citations**; sources are shown in a side panel.
-5. Every step is traced to **Langfuse**.
-
-### Stack
-
-`Modal` (serverless GPU) · `vLLM` · `FastAPI` (SSE streaming) · self-hosted `Supabase` + `pgvector` · `nomic-embed-text-v1.5` · `Tavily` · `trafilatura` / `pymupdf4llm` · `Langfuse`
 
 ## Quick start
 
 ```bash
 git clone https://github.com/Mystique1337/naija-petro.git
 cd naija-petro
-cp .env.example .env            # fill in your keys
+cp .env.example .env            # fill in your keys (see the file for each one)
+pip install -r requirements.txt
 
-# 1) Provision the vector store (run once against your Railway Postgres / Supabase)
+# 1) Provision the vector store + analytics (run once against your Postgres)
 psql "$SUPABASE_DB_URL" -f supabase/schema.sql
 
-# 2) Push your .env into a Modal secret, then run the assistant
-pip install -r requirements.txt && modal token new
+# 2) Authenticate Modal and push your .env into a Modal secret
+modal token new
 bash scripts/setup_modal_secret.sh     # .env -> Modal secret "naija-petro-secrets"
-modal serve modal_app.py               # dev URL (hot reload)
-# modal deploy modal_app.py            # production URL
-# After app/ code changes, if a warm container keeps serving old code during
-# active testing, force fresh containers:  modal app stop naija-petro --yes
 
-# 3) (optional) seed authoritative Nigerian docs once deployed
+# 3) Run it
+modal serve  modal_app.py              # dev URL with hot reload
+modal deploy modal_app.py              # production URL
+
+# 4) (optional) seed authoritative Nigerian docs, once deployed
 python scripts/seed_kb.py
 ```
 
-See [`.env.example`](.env.example) for every setting and which credential each step needs.
+Notes:
+- This connects to Postgres over the direct `SUPABASE_DB_URL`, which works for a Railway-hosted Supabase or Postgres as well as a self-hosted Supabase. The connection uses TLS when offered and falls back to plaintext (what Railway's TCP proxy needs). Use the public connection URL, not a `*.railway.internal` host.
+- After changing `app/` code, a warm container can keep serving the old code. Force fresh containers with `modal app stop naija-petro --yes` then redeploy.
+- `pgvector` must be enabled on the database; the schema runs `CREATE EXTENSION IF NOT EXISTS vector`.
+
+## Configuration
+
+All settings live in `.env` (see [`.env.example`](.env.example)). The essentials:
+
+| Variable | Purpose |
+|---|---|
+| `SUPABASE_DB_URL` | Postgres connection (vector store, analytics, history). Public URL. |
+| `TAVILY_API_KEY` | Live web retrieval of Nigerian sources. |
+| `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` | Prompt and RAG tracing. |
+| `HF_TOKEN` | Pushing the Hugging Face cards (`scripts/push_cards.py`). |
+| `MODEL_REPO`, `LLM_GPU`, `LLM_SCALEDOWN_WINDOW` | Model, GPU type (default L4), and idle window (default short, for cost). |
+| `ENABLE_RERANK` | Cross-encoder rerank, off by default (hybrid RRF is already strong). |
+| `RAG_TOP_K`, `RAG_FINAL_K`, `RAG_CONTEXT_CHARS` | Retrieval breadth and the context budget cap. |
+| `ACCESS_KEY`, `RATE_LIMIT_*` | Optional access gate and rate limiting. |
+
+## API
+
+| Endpoint | Method | Purpose |
+|---|---|---|
+| `/` | GET | Chat UI |
+| `/chat` | POST | Streaming answer (Server-Sent Events) |
+| `/tools`, `/tools/run` | GET, POST | List and run the engineering calculators |
+| `/upload` | POST | Upload a PDF or text file into the knowledge base |
+| `/feedback` | POST | Thumbs and comment (stored for training) |
+| `/subscribe`, `/feature`, `/features` | POST/GET | Email capture and feature-request board |
+| `/history`, `/history/{id}` | GET | Saved conversations (anonymous) |
+| `/kb/stats`, `/healthz` | GET | Knowledge-base stats and health |
+
+## Analytics
+
+Query usage directly in Supabase:
+
+```sql
+SELECT * FROM usage_summary;   -- total queries, sessions, unique users, distinct IPs
+SELECT * FROM usage_daily;     -- per-day queries, latency, coverage, docs added
+SELECT * FROM feedback;        -- ratings + the full exchange for model improvement
+```
+
+## Cost
+
+The app runs on one L4 GPU (capped to a single container), embeddings on CPU, a short idle window, and scale to zero when idle, so you pay only while it is actively used. The first request after idle cold-starts the model (roughly one to two minutes, weights cached), then it is fast. Set a hard spending limit in the Modal dashboard for peace of mind.
 
 ## Dataset
 
-20K+ synthetic instruction–response pairs generated with NVIDIA Data Designer from a scraped, de-duplicated petroleum corpus (arXiv, Semantic Scholar, OpenAlex, Crossref, DOE/OSTI, PetroWiki, SLB glossary, EIA, and more). Pipeline lives in `notebooks/01`–`02`; the dataset card is in [`hf_cards/dataset_card.md`](hf_cards/dataset_card.md).
+20,000+ synthetic instruction-response pairs generated with NVIDIA Data Designer from a scraped, de-duplicated petroleum corpus (arXiv, Semantic Scholar, OpenAlex, Crossref, DOE/OSTI, PetroWiki, the SLB glossary, EIA, and more). The pipeline is in `notebooks/01` and `notebooks/02`; the dataset card is in [`hf_cards/dataset_card.md`](hf_cards/dataset_card.md).
 
 ## License
 
-Apache-2.0, following the Qwen3 base models. Outputs are for research and educational support — **validate with qualified engineers before any operational decision.**
+Apache-2.0, following the Qwen3 base models. Outputs are decision support for research and education. Validate with qualified engineers and primary sources before any operational decision.
