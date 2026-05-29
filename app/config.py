@@ -94,6 +94,18 @@ settings = Settings()
 
 APP_NAME = "naija-petro"
 
+# Sentinel a streaming backend yields as its final item when generation stopped
+# because it hit the token limit. Lets the API flag the answer as truncated so the
+# UI can offer a "Continue" action.
+STREAM_TRUNCATED = "\x00\x00NP_TRUNCATED\x00\x00"
+
+# Injected as the user turn when continuing a previously truncated answer.
+CONTINUE_INSTRUCTION = (
+    "Continue your previous answer exactly from where it stopped. Do not repeat "
+    "anything you already wrote, do not restate the question, and do not add a new "
+    "introduction or heading. Pick up mid-sentence if needed and finish the response."
+)
+
 SYSTEM_PROMPT = (
     "You are Naija-Petro, an expert petroleum-engineering AI assistant focused on the "
     "Nigerian oil & gas sector, covering drilling, reservoir engineering, production, "

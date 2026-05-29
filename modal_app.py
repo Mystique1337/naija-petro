@@ -19,7 +19,7 @@ import time
 
 import modal
 
-from app.config import APP_NAME, settings
+from app.config import APP_NAME, STREAM_TRUNCATED, settings
 
 app = modal.App(APP_NAME)
 
@@ -134,9 +134,17 @@ class LLMService:
             extra_body={"chat_template_kwargs": {"enable_thinking": think},
                         "repetition_penalty": s.get("repetition_penalty", 1.1)},
         )
+        finish = None
         async for chunk in stream:
-            if chunk.choices and chunk.choices[0].delta.content:
-                yield _strip_dashes(chunk.choices[0].delta.content)
+            if not chunk.choices:
+                continue
+            ch = chunk.choices[0]
+            if ch.delta and ch.delta.content:
+                yield _strip_dashes(ch.delta.content)
+            if ch.finish_reason:
+                finish = ch.finish_reason
+        if finish == "length":      # hit max_tokens -> the answer was cut off
+            yield STREAM_TRUNCATED
 
     @modal.method()
     async def complete(self, messages: list[dict], sampling: dict | None = None) -> str:
