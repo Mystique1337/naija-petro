@@ -65,21 +65,30 @@ def build_context(chunks: list[RetrievedChunk]) -> tuple[str, list[dict]]:
     return context, citation_list
 
 
-def build_messages(query: str, chunks: list[RetrievedChunk], history: list[dict] | None = None) -> tuple[list[dict], list[dict]]:
+REASONING_DIRECTIVE = (
+    "First reason through your approach inside <think> and </think> tags (your private "
+    "working: what the question needs, which sources are relevant, the key steps). Then, "
+    "after </think>, write the final answer. Keep the reasoning concise.\n\n"
+)
+
+
+def build_messages(query: str, chunks: list[RetrievedChunk], history: list[dict] | None = None,
+                   reasoning: bool = False) -> tuple[list[dict], list[dict]]:
     """Build chat messages + the source list for the UI."""
     context, sources = build_context(chunks)
     messages: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}]
     messages += history or []
 
+    prefix = REASONING_DIRECTIVE if reasoning else ""
     if context:
         user = (
-            f"{CITATION_INSTRUCTIONS}\n\n"
+            f"{prefix}{CITATION_INSTRUCTIONS}\n\n"
             f"# Sources\n{context}\n\n"
             f"# Question\n{query}"
         )
     else:
         user = (
-            "No external sources were retrieved. Answer from your general "
+            f"{prefix}No external sources were retrieved. Answer from your general "
             "petroleum-engineering knowledge and note that the answer is not "
             "grounded in Nigeria-specific sources.\n\n"
             f"# Question\n{query}"

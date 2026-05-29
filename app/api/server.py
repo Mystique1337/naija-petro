@@ -30,9 +30,15 @@ FRONTEND_DIR = Path(os.environ.get("FRONTEND_DIR") or (Path(__file__).resolve().
 
 FOLLOWUP_SYS = (
     "You suggest follow-up questions for a petroleum-engineering assistant focused on "
-    "Nigeria. Output exactly three short, distinct questions, one per line, no numbering "
-    "or preamble. Do not use em-dashes."
+    "Nigeria. Output exactly three short, distinct questions (max 12 words each). "
+    "Plain text only: one question per line, no numbering, no markdown, no bold, no "
+    "preamble, no em-dashes. Do not use <think> tags."
 )
+
+
+def _clean_followup(line: str) -> str:
+    line = line.replace("*", "").replace("#", "").replace("`", "")
+    return line.strip(" -•\t0123456789.)").strip()
 
 
 @dataclass
@@ -168,7 +174,7 @@ def create_app(deps: Deps) -> FastAPI:
                             break
                         except asyncio.TimeoutError:
                             yield _sse("status", stage="searching")
-                    messages, sources = build_messages(msg, result.chunks, req.history)
+                    messages, sources = build_messages(msg, result.chunks, req.history, reasoning=req.reasoning)
 
                     tr.update(metadata={
                         "coverage": round(result.coverage, 3),
@@ -220,9 +226,9 @@ def create_app(deps: Deps) -> FastAPI:
                                 {"role": "system", "content": FOLLOWUP_SYS},
                                 {"role": "user", "content": f"Question: {msg}\n\nAnswer: {answer[:1500]}\n\nThree follow-up questions:"},
                             ]
-                            fu = await deps.llm_complete(fu_msgs, {"max_tokens": 96, "temperature": 0.5, "reasoning": False})
-                            qs = [l.strip(" -•\t0123456789.") for l in fu.splitlines() if l.strip()][:3]
-                            qs = [q for q in qs if len(q) > 8]
+                            fu = await deps.llm_complete(fu_msgs, {"max_tokens": 140, "temperature": 0.5, "reasoning": False})
+                            qs = [_clean_followup(l) for l in fu.splitlines() if l.strip()]
+                            qs = [q for q in qs if 8 < len(q) <= 120][:3]
                             if qs:
                                 yield _sse("followups", items=qs)
                         except Exception:

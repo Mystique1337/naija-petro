@@ -214,7 +214,7 @@
 <script>
 function app(){
   return {
-    messages: [], input:'', busy:false, dark:true, reasoningOn:true,
+    messages: [], input:'', busy:false, dark:true, reasoningOn:false,
     sessionId: uid(), userId: persistUid(),
     kb: { documents:0, chunks:0 },
     examples: [
@@ -236,10 +236,10 @@ function app(){
 
     splitThink(raw){
       const o = raw.indexOf('<think>');
-      if(o===-1) return { reasoning:'', answer:raw, thinking:false };
       const c = raw.indexOf('</think>');
-      if(c===-1) return { reasoning: raw.slice(o+7), answer:'', thinking:true };
-      return { reasoning: raw.slice(o+7,c).trim(), answer: raw.slice(c+8).replace(/^\s+/,''), thinking:false };
+      if(c!==-1){ const start=(o!==-1&&o<c)?o+7:0; return { reasoning: raw.slice(start,c).trim(), answer: raw.slice(c+8).replace(/^\s+/,''), thinking:false }; }
+      if(o!==-1) return { reasoning: raw.slice(o+7), answer:'', thinking:true };
+      return { reasoning:'', answer:raw, thinking:false };
     },
     render(text, sources){
       const math=[];
