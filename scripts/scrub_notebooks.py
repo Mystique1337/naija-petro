@@ -22,12 +22,24 @@ Usage:
 from __future__ import annotations
 
 import json
+import os
 import re
 import sys
 from pathlib import Path
 
-PII_EMAIL = "you@example.com"
 EMAIL_PLACEHOLDER = "you@example.com"
+
+# Personal emails are PII. We detect them by free-mail provider (so no real
+# address is hardcoded in this repo) plus any addresses listed in the
+# SCRUB_EXTRA_EMAILS env var (comma-separated). Institutional / placeholder
+# domains (example.com, *.gov, *.edu, ...) are left intact.
+EMAIL_RE = re.compile(r"[a-zA-Z0-9._%+-]+@([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})")
+FREE_EMAIL_PROVIDERS = {
+    "gmail.com", "yahoo.com", "ymail.com", "hotmail.com", "outlook.com",
+    "live.com", "msn.com", "icloud.com", "me.com", "aol.com", "proton.me",
+    "protonmail.com", "yandex.com", "mail.com", "gmx.com", "zoho.com",
+}
+EXTRA_EMAILS = {e.strip().lower() for e in os.environ.get("SCRUB_EXTRA_EMAILS", "").split(",") if e.strip()}
 
 # Replace `os.environ['S2_API_KEY'] = '<literal>'` (single/double quotes) with userdata.get.
 S2_ASSIGN = re.compile(
@@ -67,10 +79,15 @@ def scrub_text(text: str, findings: list[str], where: str) -> str:
         findings.append(f"{where}: hardcoded S2_API_KEY assignment")
         text = S2_ASSIGN.sub(S2_REPLACEMENT, text)
 
-    # 2) Personal email -> placeholder
-    if PII_EMAIL in text:
-        findings.append(f"{where}: personal email ({text.count(PII_EMAIL)}x)")
-        text = text.replace(PII_EMAIL, EMAIL_PLACEHOLDER)
+    # 2) Personal emails (free-mail providers or SCRUB_EXTRA_EMAILS) -> placeholder
+    def _redact_email(m: re.Match) -> str:
+        full, domain = m.group(0), m.group(1).lower()
+        if full.lower() in EXTRA_EMAILS or domain in FREE_EMAIL_PROVIDERS:
+            findings.append(f"{where}: personal email")
+            return EMAIL_PLACEHOLDER
+        return full
+
+    text = EMAIL_RE.sub(_redact_email, text)
 
     # 3) Known secret token shapes
     for pat in SECRET_PATTERNS:
