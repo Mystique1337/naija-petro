@@ -1,0 +1,57 @@
+# --- Secrets / environment ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+.modal.toml
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+.venv/
+venv/
+env/
+.ipynb_checkpoints/
+
+# --- ML / data artifacts (keep notebooks, drop heavy outputs) ---
+*.gguf
+*.safetensors
+*.bin
+*.pt
+*.ckpt
+checkpoints/
+wandb/
+outputs/
+data/raw/
+data/processed/
+*.parquet
+*.jsonl
+!notebooks/**/*.jsonl
+
+# --- Caches ---
+.cache/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+hf_cache/
+model_cache/
+
+# --- Node / frontend build (if ever added) ---
+node_modules/
+.next/
+dist/
+
+# --- OS / editor ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
