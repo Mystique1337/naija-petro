@@ -4,6 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Naija-Petro · Petroleum Engineering Assistant</title>
+<!-- build: ui-2 (reactive streaming fix) -->
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛢️</text></svg>" />
 <script src="https://cdn.tailwindcss.com"></script>
 <script>
@@ -192,8 +193,10 @@ function chat(){
       this.messages.push({ role:'user', content:q });
       const history = this.messages.filter(m=>m.role==='user'||m.role==='assistant')
         .slice(-7,-1).map(m=>({role:m.role, content:m.content}));
-      const m = { role:'assistant', content:'', html:'', sources:[], meta:null, streaming:true, error:null };
-      this.messages.push(m); this.scrollDown();
+      this.messages.push({ role:'assistant', content:'', html:'', sources:[], meta:null, streaming:true, error:null });
+      // Use the reactive array element — mutating the raw object would not update the DOM.
+      const m = this.messages[this.messages.length - 1];
+      this.scrollDown();
       try{
         const resp = await fetch('/chat', {
           method:'POST', headers:{'Content-Type':'application/json'},
