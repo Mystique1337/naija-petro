@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # Create/update the Modal secret bundle "naija-petro-secrets" from your local .env.
+# Uses Modal's own dotenv parser (--from-dotenv), which is robust to passwords /
+# connection strings containing shell-special characters.
 # Run from the repo root after filling in .env:  bash scripts/setup_modal_secret.sh
 set -euo pipefail
 
@@ -11,21 +13,6 @@ if [[ ! -f "$ENV_FILE" ]]; then
   exit 1
 fi
 
-# Pass only the keys the app needs at runtime (skip blanks).
-KEYS=(SUPABASE_DB_URL SUPABASE_DB_SSL TAVILY_API_KEY HF_TOKEN \
-      LANGFUSE_PUBLIC_KEY LANGFUSE_SECRET_KEY LANGFUSE_HOST \
-      MODEL_REPO EMBED_MODEL EMBED_DIM ENABLE_RERANK RERANK_MODEL \
-      RAG_COVERAGE_THRESHOLD RAG_MIN_CHUNKS RAG_TOP_K RAG_FINAL_K \
-      RAG_ALWAYS_ENRICH MAX_MODEL_LEN LLM_GPU EMBED_GPU)
-
-ARGS=()
-# shellcheck disable=SC1090
-set -a; source "$ENV_FILE"; set +a
-for k in "${KEYS[@]}"; do
-  v="${!k:-}"
-  [[ -n "$v" ]] && ARGS+=("$k=$v")
-done
-
-echo "Creating Modal secret 'naija-petro-secrets' with ${#ARGS[@]} keys…"
-modal secret create naija-petro-secrets "${ARGS[@]}" --force
+echo "Creating/updating Modal secret 'naija-petro-secrets' from .env…"
+modal secret create naija-petro-secrets --from-dotenv "$ENV_FILE" --force
 echo "Done."
