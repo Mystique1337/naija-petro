@@ -170,6 +170,85 @@ CALCULATORS: dict[str, tuple] = {
 
 TOOL_MENU = "\n".join(f"- {name}: {desc}" for name, (_, desc) in CALCULATORS.items())
 
+# UI-facing argument specs: ordered fields with friendly labels for the manual
+# calculator picker. `opt` marks an optional argument. Ordered for the UI
+# (in-place, decline, IPR/inflow, drilling, PVT).
+TOOL_SPECS: dict[str, dict] = {
+    "ooip_volumetric": {"label": "Oil in place (STOIIP, volumetric)", "args": [
+        {"name": "area_acres", "label": "Drainage area (acres)"},
+        {"name": "thickness_ft", "label": "Net pay thickness (ft)"},
+        {"name": "porosity", "label": "Porosity (fraction 0-1)"},
+        {"name": "water_sat", "label": "Water saturation (fraction 0-1)"},
+        {"name": "bo", "label": "Oil FVF Bo (RB/STB)"},
+    ]},
+    "ogip_volumetric": {"label": "Gas in place (OGIP, volumetric)", "args": [
+        {"name": "area_acres", "label": "Drainage area (acres)"},
+        {"name": "thickness_ft", "label": "Net pay thickness (ft)"},
+        {"name": "porosity", "label": "Porosity (fraction 0-1)"},
+        {"name": "water_sat", "label": "Water saturation (fraction 0-1)"},
+        {"name": "bg_rcf_per_scf", "label": "Gas FVF Bg (rcf/scf)"},
+    ]},
+    "recovery_factor": {"label": "Recovery factor", "args": [
+        {"name": "np_stb", "label": "Cumulative produced Np (STB)"},
+        {"name": "ooip_stb", "label": "Original oil in place N (STB)"},
+    ]},
+    "arps_decline": {"label": "Arps production decline", "args": [
+        {"name": "qi", "label": "Initial rate qi"},
+        {"name": "Di", "label": "Nominal decline Di (per time unit)"},
+        {"name": "t", "label": "Elapsed time t"},
+        {"name": "b", "label": "b exponent (0=exp, 1=harmonic)", "opt": True},
+    ]},
+    "arps_eur_exponential": {"label": "EUR (exponential decline)", "args": [
+        {"name": "qi", "label": "Initial rate qi"},
+        {"name": "D_per_year", "label": "Decline D (per year)"},
+        {"name": "q_abandon", "label": "Abandonment rate"},
+    ]},
+    "vogel_ipr": {"label": "Vogel IPR (saturated)", "args": [
+        {"name": "q_test", "label": "Test rate q"},
+        {"name": "pwf_test", "label": "Test flowing BHP Pwf"},
+        {"name": "pr", "label": "Avg reservoir pressure Pr"},
+        {"name": "pwf_target", "label": "Target Pwf", "opt": True},
+    ]},
+    "productivity_index": {"label": "Productivity index (straight-line IPR)", "args": [
+        {"name": "q_test", "label": "Test rate q"},
+        {"name": "pr_psi", "label": "Avg reservoir pressure Pr (psi)"},
+        {"name": "pwf_test", "label": "Test flowing BHP Pwf (psi)"},
+        {"name": "pwf_target", "label": "Target Pwf (psi)", "opt": True},
+    ]},
+    "darcy_radial_oil": {"label": "Radial oil inflow (Darcy, PSS)", "args": [
+        {"name": "k_md", "label": "Permeability k (md)"},
+        {"name": "h_ft", "label": "Net pay h (ft)"},
+        {"name": "pr_psi", "label": "Reservoir pressure Pr (psi)"},
+        {"name": "pwf_psi", "label": "Flowing BHP Pwf (psi)"},
+        {"name": "mu_cp", "label": "Oil viscosity (cp)"},
+        {"name": "bo", "label": "Oil FVF Bo (RB/STB)"},
+        {"name": "re_ft", "label": "Drainage radius re (ft)"},
+        {"name": "rw_ft", "label": "Wellbore radius rw (ft)"},
+        {"name": "skin", "label": "Skin", "opt": True},
+    ]},
+    "hydrostatic_pressure": {"label": "Hydrostatic (mud column) pressure", "args": [
+        {"name": "mud_weight_ppg", "label": "Mud weight (ppg)"},
+        {"name": "tvd_ft", "label": "True vertical depth (ft)"},
+    ]},
+    "standing_pb": {"label": "Bubble-point pressure (Standing)", "args": [
+        {"name": "rs_scf_stb", "label": "Solution GOR Rs (scf/STB)"},
+        {"name": "gas_grav", "label": "Gas gravity (air=1)"},
+        {"name": "api", "label": "Oil gravity (API)"},
+        {"name": "temp_f", "label": "Temperature (deg F)"},
+    ]},
+    "standing_bo": {"label": "Oil FVF Bo (Standing)", "args": [
+        {"name": "rs_scf_stb", "label": "Solution GOR Rs (scf/STB)"},
+        {"name": "gas_grav", "label": "Gas gravity (air=1)"},
+        {"name": "api", "label": "Oil gravity (API)"},
+        {"name": "temp_f", "label": "Temperature (deg F)"},
+    ]},
+    "gas_fvf": {"label": "Gas FVF Bg", "args": [
+        {"name": "z", "label": "z-factor"},
+        {"name": "temp_f", "label": "Temperature (deg F)"},
+        {"name": "pressure_psia", "label": "Pressure (psia)"},
+    ]},
+}
+
 _KEYWORDS = (
     "calculate", "compute", "decline", "arps", "ipr", "vogel", "aof", "ooip", "stoiip",
     "ogip", "oip", "darcy", "inflow", "rate", "hydrostatic", "mud weight", "pressure",
