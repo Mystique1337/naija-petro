@@ -44,9 +44,19 @@ def build_context(chunks: list[RetrievedChunk], budget: int | None = None) -> tu
         return "", []
 
     budget = budget or settings.context_char_budget
+    # Diversify: take one chunk per unique source first (in relevance order), then
+    # extras, so more distinct sources are shown within the character budget.
+    seen_src: set = set()
+    first, rest = [], []
+    for c in chunks:
+        key = c.source_url or c.title
+        (first if key not in seen_src else rest).append(c)
+        seen_src.add(key)
+    ordered = first + rest
+
     included: list[RetrievedChunk] = []
     total = 0
-    for c in chunks:
+    for c in ordered:
         seg = (c.content or "").strip()
         if included and total + len(seg) > budget:
             break

@@ -53,12 +53,12 @@ class Settings:
     # --- Dynamic-RAG tuning ---
     coverage_threshold: float = _f("RAG_COVERAGE_THRESHOLD", 0.55)
     min_chunks: int = _i("RAG_MIN_CHUNKS", 3)
-    top_k: int = _i("RAG_TOP_K", 30)             # candidates pulled from the store
-    final_k: int = _i("RAG_FINAL_K", 10)         # passages kept for the answer
+    top_k: int = _i("RAG_TOP_K", 35)             # candidates pulled from the store
+    final_k: int = _i("RAG_FINAL_K", 12)         # passages kept for the answer
     tavily_max_results: int = _i("TAVILY_MAX_RESULTS", 10)
     # Hard cap on context characters fed to the model (protects the window + cost
     # even when many sources are retrieved).
-    context_char_budget: int = _i("RAG_CONTEXT_CHARS", 16000)
+    context_char_budget: int = _i("RAG_CONTEXT_CHARS", 20000)
     always_enrich: bool = _b("RAG_ALWAYS_ENRICH", True)
     doc_ttl_days: int = _i("RAG_DOC_TTL_DAYS", 30)
 
