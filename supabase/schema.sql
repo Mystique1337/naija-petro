@@ -157,3 +157,65 @@ LANGUAGE sql STABLE AS $$
            (SELECT count(*) FROM document_chunks),
            (SELECT max(retrieved_at) FROM documents);
 $$;
+
+-- ===========================================================================
+-- Usage analytics + feedback  (query usage_summary / usage_daily in Supabase)
+-- ===========================================================================
+CREATE TABLE IF NOT EXISTS usage_events (
+    id            BIGSERIAL PRIMARY KEY,
+    session_id    TEXT,
+    user_id       TEXT,
+    ip_hash       TEXT,         -- sha256(ip + salt), not the raw IP
+    country       TEXT,
+    query         TEXT,
+    answer_chars  INT,
+    n_sources     INT,
+    coverage      REAL,
+    enriched      BOOLEAN,
+    kb_added      INT,
+    reasoning     BOOLEAN,
+    latency_ms    INT,
+    created_at    TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_usage_created ON usage_events (created_at);
+CREATE INDEX IF NOT EXISTS idx_usage_session ON usage_events (session_id);
+CREATE INDEX IF NOT EXISTS idx_usage_ip      ON usage_events (ip_hash);
+
+CREATE TABLE IF NOT EXISTS feedback (
+    id          BIGSERIAL PRIMARY KEY,
+    session_id  TEXT,
+    user_id     TEXT,
+    query       TEXT,
+    rating      SMALLINT,        -- 1 = thumbs up, -1 = thumbs down
+    trace_id    TEXT,            -- Langfuse trace id, if available
+    comment     TEXT,
+    created_at  TIMESTAMPTZ DEFAULT now()
+);
+
+-- Headline numbers (how many people use the app, etc.)
+CREATE OR REPLACE VIEW usage_summary AS
+    SELECT count(*)                       AS total_queries,
+           count(DISTINCT session_id)     AS total_sessions,
+           count(DISTINCT user_id)        AS unique_users,
+           count(DISTINCT ip_hash)        AS distinct_ips,
+           max(created_at)                AS last_query
+    FROM usage_events;
+
+CREATE OR REPLACE VIEW usage_daily AS
+    SELECT date_trunc('day', created_at)::date AS day,
+           count(*)                            AS queries,
+           count(DISTINCT session_id)          AS sessions,
+           count(DISTINCT user_id)             AS users,
+           round(avg(latency_ms))              AS avg_latency_ms,
+           round(avg(coverage)::numeric, 3)    AS avg_coverage,
+           sum(kb_added)                       AS docs_added
+    FROM usage_events
+    GROUP BY 1 ORDER BY 1 DESC;
+
+-- Rate-limit helper: how many requests this IP or session made in a window.
+CREATE OR REPLACE FUNCTION recent_request_count(p_ip TEXT, p_session TEXT, p_window_seconds INT)
+RETURNS INT LANGUAGE sql STABLE AS $$
+    SELECT count(*)::int FROM usage_events
+    WHERE created_at > now() - make_interval(secs => p_window_seconds)
+      AND (ip_hash = p_ip OR session_id = p_session);
+$$;
