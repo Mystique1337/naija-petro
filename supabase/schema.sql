@@ -257,3 +257,13 @@ CREATE TABLE IF NOT EXISTS conversations (
 );
 CREATE INDEX IF NOT EXISTS idx_conv_user    ON conversations (user_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_conv_session ON conversations (session_id, created_at);
+
+-- Access tokens: holders bypass the free daily query limit. 3 primary + 7 secondary.
+CREATE TABLE IF NOT EXISTS access_tokens (
+    id          BIGSERIAL PRIMARY KEY,
+    token       TEXT UNIQUE NOT NULL,
+    label       TEXT,
+    kind        TEXT DEFAULT 'secondary',   -- 'primary' or 'secondary'
+    active      BOOLEAN DEFAULT TRUE,
+    created_at  TIMESTAMPTZ DEFAULT now()
+);

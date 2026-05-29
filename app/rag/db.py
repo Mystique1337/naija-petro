@@ -257,3 +257,68 @@ async def load_session(session_id: str, limit: int = 100) -> list[dict]:
         session_id, limit,
     )
     return [dict(r) for r in rows]
+
+
+# --------------------------------------------------------------------------- #
+# Access tokens + daily limit
+# --------------------------------------------------------------------------- #
+async def token_active(token: str) -> bool:
+    if not token:
+        return False
+    pool = await get_pool()
+    row = await pool.fetchval(
+        "SELECT 1 FROM access_tokens WHERE token = $1 AND active = TRUE", token,
+    )
+    return row is not None
+
+
+async def daily_ip_count(ip_hash: str) -> int:
+    pool = await get_pool()
+    n = await pool.fetchval(
+        "SELECT count(*) FROM usage_events WHERE ip_hash = $1 AND created_at >= date_trunc('day', now())",
+        ip_hash,
+    )
+    return int(n or 0)
+
+
+async def list_tokens() -> list[dict]:
+    pool = await get_pool()
+    rows = await pool.fetch(
+        "SELECT id, token, label, kind, active, created_at FROM access_tokens ORDER BY kind, id",
+    )
+    return [dict(r) for r in rows]
+
+
+async def set_token_active(token_id: int, active: bool) -> None:
+    pool = await get_pool()
+    await pool.execute("UPDATE access_tokens SET active = $2 WHERE id = $1", token_id, active)
+
+
+async def create_token(token: str, label: str, kind: str = "secondary") -> None:
+    pool = await get_pool()
+    await pool.execute(
+        "INSERT INTO access_tokens (token, label, kind, active) VALUES ($1,$2,$3,TRUE) "
+        "ON CONFLICT (token) DO NOTHING",
+        token, label, kind,
+    )
+
+
+async def count_tokens_by_kind() -> dict:
+    pool = await get_pool()
+    rows = await pool.fetch("SELECT kind, count(*) AS n FROM access_tokens GROUP BY kind")
+    return {r["kind"]: int(r["n"]) for r in rows}
+
+
+async def usage_overview(days: int = 14) -> dict:
+    """Headline usage numbers + recent daily breakdown for the admin panel."""
+    pool = await get_pool()
+    summary = await pool.fetchrow("SELECT * FROM usage_summary")
+    daily = await pool.fetch("SELECT * FROM usage_daily LIMIT $1", days)
+    today = await pool.fetchval(
+        "SELECT count(*) FROM usage_events WHERE created_at >= date_trunc('day', now())",
+    )
+    return {
+        "summary": dict(summary) if summary else {},
+        "today": int(today or 0),
+        "daily": [dict(r) for r in daily],
+    }
