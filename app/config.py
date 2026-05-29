@@ -31,7 +31,7 @@ def _i(name: str, default: int) -> int:
 class Settings:
     # --- Model serving ---
     model_repo: str = os.environ.get("MODEL_REPO", "Shinzmann/naija-petro-8b")
-    llm_gpu: str = os.environ.get("LLM_GPU", "A10G")
+    llm_gpu: str = os.environ.get("LLM_GPU", "L4")    # L4 (24GB) fits the 8B fp16 and is cheaper than A10G
     llm_scaledown_window: int = _i("LLM_SCALEDOWN_WINDOW", 120)
     max_model_len: int = _i("MAX_MODEL_LEN", 8192)
 

@@ -82,6 +82,7 @@ web_image = (
     secrets=secrets,
     scaledown_window=settings.llm_scaledown_window,
     timeout=20 * 60,
+    max_containers=1,                 # hard cap: never more than one GPU at a time
 )
 @modal.concurrent(max_inputs=16)
 class LLMService:
@@ -160,6 +161,7 @@ class LLMService:
     secrets=secrets,
     scaledown_window=settings.llm_scaledown_window,
     timeout=10 * 60,
+    max_containers=2,
 )
 @modal.concurrent(max_inputs=32)
 class Encoders:
