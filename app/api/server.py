@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Awaitable, Callable, Optional
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -79,6 +79,7 @@ class ChatRequest(BaseModel):
     user_id: Optional[str] = None
     history: Optional[list[dict]] = None
     reasoning: bool = True
+    units: str = "field"          # "field" or "si"
 
 
 class FeedbackRequest(BaseModel):
@@ -100,6 +101,12 @@ class SubscribeRequest(BaseModel):
 class ToolRunRequest(BaseModel):
     name: str
     args: dict = {}
+
+
+class FeatureRequest(BaseModel):
+    text: str
+    email: Optional[str] = None
+    session_id: Optional[str] = None
 
 
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -185,6 +192,59 @@ def create_app(deps: Deps) -> FastAPI:
     async def tools_run(req: ToolRunRequest):
         return run_tool(req.name, req.args)
 
+    @api.post("/feature")
+    async def feature(req: FeatureRequest):
+        text = (req.text or "").strip()
+        if len(text) < 3:
+            return JSONResponse({"error": "Please describe the feature."}, status_code=400)
+        try:
+            await db.add_feature(text[:1000], (req.email or None), req.session_id)
+        except Exception:
+            return JSONResponse({"error": "Could not save right now."}, status_code=503)
+        return {"ok": True}
+
+    @api.get("/features")
+    async def features():
+        try:
+            return {"features": await db.list_features(20)}
+        except Exception as e:
+            return JSONResponse({"error": str(e)}, status_code=503)
+
+    @api.get("/history")
+    async def history(user_id: str = ""):
+        if not user_id:
+            return {"sessions": []}
+        try:
+            return {"sessions": await db.list_sessions(user_id, 25)}
+        except Exception as e:
+            return JSONResponse({"error": str(e)}, status_code=503)
+
+    @api.get("/history/{session_id}")
+    async def history_session(session_id: str):
+        try:
+            return {"turns": await db.load_session(session_id, 100)}
+        except Exception as e:
+            return JSONResponse({"error": str(e)}, status_code=503)
+
+    @api.post("/upload")
+    async def upload(file: UploadFile = File(...), session_id: str = Form(""), user_id: str = Form("")):
+        from app.rag import ingest
+        data = await file.read()
+        if len(data) > 8_000_000:
+            return JSONResponse({"error": "File too large (max 8 MB)."}, status_code=400)
+        try:
+            text = await asyncio.to_thread(ingest.extract_upload, file.filename or "upload", data)
+            if len((text or "").strip()) < 50:
+                return JSONResponse({"error": "Could not extract readable text from this file."}, status_code=400)
+            res = await ingest.ingest_text(
+                text, (file.filename or "Uploaded document"), deps.embed, source_label="upload",
+                metadata={"filename": file.filename, "session_id": session_id, "user_id": user_id},
+            )
+            return {"ok": True, "filename": file.filename,
+                    "chunks": res.get("chunk_count", 0), "inserted": res.get("inserted", False)}
+        except Exception as e:
+            return JSONResponse({"error": f"Upload failed: {e}"}, status_code=500)
+
     @api.post("/chat")
     async def chat(req: ChatRequest, request: Request):
         # --- gates (checked before we start streaming) ---
@@ -231,6 +291,12 @@ def create_app(deps: Deps) -> FastAPI:
                         except asyncio.TimeoutError:
                             yield _sse("status", stage="searching")
                     messages, sources = build_messages(msg, result.chunks, req.history, reasoning=req.reasoning)
+                    if (req.units or "field").lower() == "si":
+                        messages[-1]["content"] = (
+                            "Present all numeric results in SI units (metres, kPa or MPa, m3, sm3, "
+                            "kg/m3); convert from field units where needed and show the converted value.\n\n"
+                            + messages[-1]["content"]
+                        )
 
                     tr.update(metadata={
                         "coverage": round(result.coverage, 3),
@@ -333,6 +399,12 @@ def create_app(deps: Deps) -> FastAPI:
                         "kb_added": (result.enrichment.get("new_chunks", 0) if result else 0),
                         "reasoning": req.reasoning, "latency_ms": int((time.time() - t0) * 1000),
                     })
+                except Exception:
+                    pass
+                # Saved history (best-effort)
+                try:
+                    if req.user_id and answer:
+                        await db.save_turns(req.user_id, sess, [("user", msg), ("assistant", answer)])
                 except Exception:
                     pass
 

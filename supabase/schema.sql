@@ -235,3 +235,25 @@ CREATE TABLE IF NOT EXISTS subscribers (
 -- preference data later.
 ALTER TABLE feedback ADD COLUMN IF NOT EXISTS answer  TEXT;
 ALTER TABLE feedback ADD COLUMN IF NOT EXISTS sources JSONB;
+
+-- Feature-request board
+CREATE TABLE IF NOT EXISTS feature_requests (
+    id          BIGSERIAL PRIMARY KEY,
+    text        TEXT NOT NULL,
+    email       TEXT,
+    session_id  TEXT,
+    votes       INT DEFAULT 1,
+    created_at  TIMESTAMPTZ DEFAULT now()
+);
+
+-- Saved chat history (anonymous, keyed by the browser's persistent user_id)
+CREATE TABLE IF NOT EXISTS conversations (
+    id          BIGSERIAL PRIMARY KEY,
+    user_id     TEXT,
+    session_id  TEXT,
+    role        TEXT,             -- 'user' or 'assistant'
+    content     TEXT,
+    created_at  TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_conv_user    ON conversations (user_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_conv_session ON conversations (session_id, created_at);

@@ -181,6 +181,41 @@ async def ingest_query(query: str, embed_fn: EmbedFn, max_results: int | None = 
     }
 
 
+def extract_upload(filename: str, data: bytes) -> str:
+    """Extract text from an uploaded file (PDF via PyMuPDF, else decode as text/markdown)."""
+    if (filename or "").lower().endswith(".pdf") or data[:5] == b"%PDF-":
+        return _extract_pdf(data)
+    try:
+        return data.decode("utf-8", errors="ignore")
+    except Exception:
+        return ""
+
+
+async def ingest_text(text: str, title: str, embed_fn: EmbedFn,
+                      source_label: str = "upload", metadata: dict | None = None) -> dict:
+    """Chunk, embed, and upsert raw text (used for uploaded documents)."""
+    content = _normalise(text)
+    if len(content) < 50:
+        return {"inserted": False, "chunk_count": 0, "reason": "too short"}
+    chash = _hash(content)
+    if await db.document_exists(chash):
+        return {"inserted": False, "chunk_count": 0, "reason": "already ingested"}
+    chunks_txt = chunk_text(content, settings.chunk_chars, settings.chunk_overlap)
+    if not chunks_txt:
+        return {"inserted": False, "chunk_count": 0, "reason": "no content"}
+    embeddings = await embed_fn(chunks_txt, "document")
+    chunks = [
+        {"content": t, "embedding": e, "token_count": len(t.split()), "metadata": {"chunk": i}}
+        for i, (t, e) in enumerate(zip(chunks_txt, embeddings))
+    ]
+    doc = {
+        "title": title, "source_url": f"upload://{title}", "domain": "upload",
+        "source_tier": 2, "published_date": None, "content": content, "content_hash": chash,
+        "metadata": {"source_label": source_label, **(metadata or {})},
+    }
+    return await db.upsert_document(doc, chunks)
+
+
 async def ingest_urls(urls: list[str], embed_fn: EmbedFn) -> dict:
     """Directly ingest specific URLs (used by the KB seeder)."""
     results = [{"url": u} for u in urls]

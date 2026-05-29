@@ -199,3 +199,61 @@ async def subscribe(email: str, wants_updates: bool = False, source: str | None 
            ON CONFLICT (email) DO UPDATE SET wants_updates = EXCLUDED.wants_updates""",
         email, wants_updates, source,
     )
+
+
+# --------------------------------------------------------------------------- #
+# Feature requests
+# --------------------------------------------------------------------------- #
+async def add_feature(text: str, email: str | None, session_id: str | None) -> None:
+    pool = await get_pool()
+    await pool.execute(
+        "INSERT INTO feature_requests (text, email, session_id) VALUES ($1,$2,$3)",
+        text, email, session_id,
+    )
+
+
+async def list_features(limit: int = 20) -> list[dict]:
+    pool = await get_pool()
+    rows = await pool.fetch(
+        "SELECT text, votes, created_at FROM feature_requests ORDER BY votes DESC, created_at DESC LIMIT $1",
+        limit,
+    )
+    return [dict(r) for r in rows]
+
+
+# --------------------------------------------------------------------------- #
+# Saved chat history (anonymous)
+# --------------------------------------------------------------------------- #
+async def save_turns(user_id: str, session_id: str, turns: list[tuple]) -> None:
+    if not turns:
+        return
+    pool = await get_pool()
+    await pool.executemany(
+        "INSERT INTO conversations (user_id, session_id, role, content) VALUES ($1,$2,$3,$4)",
+        [(user_id, session_id, role, content) for role, content in turns],
+    )
+
+
+async def list_sessions(user_id: str, limit: int = 20) -> list[dict]:
+    pool = await get_pool()
+    rows = await pool.fetch(
+        """SELECT session_id,
+                  max(created_at) AS last,
+                  (array_agg(content ORDER BY created_at) FILTER (WHERE role='user'))[1] AS title
+           FROM conversations
+           WHERE user_id = $1
+           GROUP BY session_id
+           ORDER BY last DESC
+           LIMIT $2""",
+        user_id, limit,
+    )
+    return [dict(r) for r in rows]
+
+
+async def load_session(session_id: str, limit: int = 100) -> list[dict]:
+    pool = await get_pool()
+    rows = await pool.fetch(
+        "SELECT role, content FROM conversations WHERE session_id = $1 ORDER BY created_at LIMIT $2",
+        session_id, limit,
+    )
+    return [dict(r) for r in rows]
