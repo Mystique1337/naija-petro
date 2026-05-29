@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Naija-Petro · Petroleum Engineering Assistant</title>
-<!-- build: ui-7 (access gate) -->
+<!-- build: ui-8 (open + daily limit + access tokens) -->
 <meta name="description" content="Nigeria-aware petroleum engineering AI with verifiable, cited sources." />
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛢️</text></svg>" />
 <script>tailwind = window.tailwind || {}; </script>
@@ -82,6 +82,9 @@
       <button @click="reasoningOn=!reasoningOn" :class="reasoningOn ? 'border-naija/60 text-naija-soft' : 'dark:border-[#1f2d27] border-[#e3ece7] opacity-60'"
         class="hidden sm:block px-2.5 py-1 rounded-full border transition" title="Toggle the model's reasoning trace">
         💭 <span x-text="reasoningOn?'on':'off'"></span>
+      </button>
+      <button @click="openToken()" class="relative w-8 h-8 grid place-items-center rounded-full border dark:border-[#1f2d27] border-[#e3ece7] hover:border-naija" :title="tokenOk?'Access token active':'Enter access token'">
+        🔑<span x-show="tokenOk" class="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-naija-soft border-2 dark:border-[#0a0f0d] border-white"></span>
       </button>
       <button @click="toggleTheme()" class="w-8 h-8 grid place-items-center rounded-full border dark:border-[#1f2d27] border-[#e3ece7]" title="Toggle theme">
         <span x-show="dark">☀️</span><span x-show="!dark">🌙</span>
@@ -316,16 +319,33 @@
     </div>
   </div>
 
-  <!-- Access gate (lock screen, shown when the server requires a key) -->
-  <div x-show="gated" x-cloak class="fixed inset-0 z-[60] grid place-items-center dark:bg-[#070b09] bg-[#f7faf8] p-4">
-    <div class="w-full max-w-sm text-center">
-      <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-naija to-naija-deep grid place-items-center text-2xl mx-auto mb-3">🔒</div>
-      <h2 class="text-xl font-bold mb-1">Naija-Petro</h2>
-      <p class="text-sm opacity-70 mb-4">This assistant is private. Enter your access key to continue.</p>
-      <input x-model="keyInput" type="password" @keydown.enter="submitKey()" placeholder="Access key" autofocus
-        class="w-full dark:bg-[#0a130f] bg-white border dark:border-[#1f2d27] border-[#e3ece7] focus:border-naija rounded-xl px-3 py-2.5 text-sm outline-none mb-2 text-center">
-      <div class="text-xs text-red-400 mb-2" x-show="keyError" x-text="keyError"></div>
-      <button @click="submitKey()" class="w-full bg-naija hover:bg-naija-soft text-white text-sm font-semibold rounded-xl py-2.5">Unlock</button>
+  <!-- Access token modal: optional. Lifts the daily free-question limit. -->
+  <div x-show="tokenModal" x-cloak @keydown.escape.window="tokenModal=false" class="fixed inset-0 z-[60] grid place-items-center bg-black/50 backdrop-blur-sm p-4">
+    <div class="w-full max-w-sm rounded-2xl border p-6 dark:bg-[#0f1714] bg-white dark:border-[#1f2d27] border-[#e3ece7]" @click.outside="if(!limitReached) tokenModal=false">
+      <div class="text-center mb-4">
+        <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-naija to-naija-deep grid place-items-center text-2xl mx-auto mb-3">🔑</div>
+        <h2 class="text-lg font-bold" x-text="tokenOk ? 'Access token active' : 'Access token'"></h2>
+        <p class="text-sm opacity-70 mt-1" x-show="!tokenOk"
+           x-text="limitReached ? `You have used your ${dailyLimit} free questions for today. Enter an access token to keep going, or come back tomorrow.` : `Everyone gets ${dailyLimit} free questions a day. An access token lifts that limit.`"></p>
+        <p class="text-sm opacity-70 mt-1" x-show="tokenOk">Your token is active. Ask freely, no daily limit.</p>
+      </div>
+      <template x-if="!tokenOk">
+        <div>
+          <input x-model="tokenInput" type="password" @keydown.enter="submitToken()" placeholder="Paste your access token" autofocus
+            class="w-full dark:bg-[#0a130f] bg-white border dark:border-[#1f2d27] border-[#e3ece7] focus:border-naija rounded-xl px-3 py-2.5 text-sm outline-none mb-2 text-center font-mono">
+          <div class="text-xs text-red-400 mb-2" x-show="tokenMsg" x-text="tokenMsg"></div>
+          <button @click="submitToken()" :disabled="tokenChecking" class="w-full bg-naija hover:bg-naija-soft text-white text-sm font-semibold rounded-xl py-2.5 disabled:opacity-50">
+            <span x-text="tokenChecking?'Checking...':'Use token'"></span>
+          </button>
+          <button @click="tokenModal=false" class="w-full mt-2 text-xs opacity-60 hover:opacity-100 py-1">Maybe later</button>
+        </div>
+      </template>
+      <template x-if="tokenOk">
+        <div class="flex gap-2">
+          <button @click="tokenModal=false" class="flex-1 bg-naija hover:bg-naija-soft text-white text-sm font-semibold rounded-xl py-2.5">Done</button>
+          <button @click="clearToken()" class="px-3 py-2.5 text-xs rounded-xl border dark:border-[#1f2d27] border-[#e3ece7] hover:border-red-400">Remove</button>
+        </div>
+      </template>
     </div>
   </div>
 </div>
@@ -339,7 +359,8 @@ function app(){
     showHistory:false, sessions:[],
     showFeature:false, featureText:'', featureSent:false, featureError:'',
     uploading:false, uploadMsg:'',
-    gated:false, accessKey:(localStorage.getItem('np_key')||''), keyInput:'', keyError:'',
+    accessToken:(localStorage.getItem('np_token')||''), tokenOk:false, tokenModal:false,
+    tokenInput:'', tokenMsg:'', tokenChecking:false, dailyLimit:10, limitReached:false,
     sessionId: uid(), userId: persistUid(),
     kb: { documents:0, chunks:0 },
     examples: [
@@ -352,35 +373,39 @@ function app(){
       this.dark = (localStorage.getItem('np_theme')||'dark')==='dark';
       document.documentElement.classList.toggle('dark', this.dark);
       marked.setOptions({ breaks:true, gfm:true });
-      // Access gate: if the server is gated, require a valid key before using the app.
+      // Open to test. Read the daily free limit and validate any saved access token.
       try{
         const hd = await (await fetch('/healthz')).json();
-        if(hd.gated){
-          if(this.accessKey){
-            const ad = await (await fetch('/auth?key='+encodeURIComponent(this.accessKey))).json();
-            if(!ad.ok){ this.accessKey=''; localStorage.removeItem('np_key'); this.gated=true; }
-          } else { this.gated=true; }
-        }
+        if(hd.daily_limit!=null) this.dailyLimit = hd.daily_limit;
       }catch(e){}
-      if(!this.gated){
-        this.refreshKb();
-        if(localStorage.getItem('np_sub')!=='1'){ setTimeout(()=>{ this.emailModal=true; }, 800); }
+      if(this.accessToken){
+        try{
+          const d = await (await fetch('/token/check?token='+encodeURIComponent(this.accessToken))).json();
+          this.tokenOk = !!d.valid;
+          if(!d.valid){ this.accessToken=''; localStorage.removeItem('np_token'); }
+        }catch(e){}
       }
+      this.refreshKb();
+      if(localStorage.getItem('np_sub')!=='1'){ setTimeout(()=>{ this.emailModal=true; }, 800); }
     },
     apiFetch(url, opts){
       opts = opts || {};
-      opts.headers = Object.assign({}, opts.headers||{}, this.accessKey ? {'X-Access-Key': this.accessKey} : {});
-      return fetch(url, opts).then(r => { if(r.status===401){ this.gated=true; } return r; });
+      opts.headers = Object.assign({}, opts.headers||{}, this.accessToken ? {'X-Access-Token': this.accessToken} : {});
+      return fetch(url, opts);
     },
-    async submitKey(){
-      const k=(this.keyInput||'').trim();
-      if(!k){ this.keyError='Enter the access key.'; return; }
+    openToken(){ this.tokenMsg=''; this.tokenModal=true; },
+    async submitToken(){
+      const k=(this.tokenInput||'').trim();
+      if(!k){ this.tokenMsg='Enter your access token.'; return; }
+      this.tokenChecking=true; this.tokenMsg='';
       try{
-        const d = await (await fetch('/auth?key='+encodeURIComponent(k))).json();
-        if(d.ok){ this.accessKey=k; localStorage.setItem('np_key',k); this.gated=false; this.keyError=''; this.keyInput=''; this.refreshKb(); }
-        else { this.keyError='Incorrect access key.'; }
-      }catch(e){ this.keyError='Network error, please try again.'; }
+        const d = await (await fetch('/token/check?token='+encodeURIComponent(k))).json();
+        if(d.valid){ this.accessToken=k; localStorage.setItem('np_token',k); this.tokenOk=true; this.limitReached=false; this.tokenInput=''; this.tokenMsg=''; }
+        else { this.tokenMsg='That token is not valid or has been deactivated.'; }
+      }catch(e){ this.tokenMsg='Network error, please try again.'; }
+      finally{ this.tokenChecking=false; }
     },
+    clearToken(){ this.accessToken=''; this.tokenOk=false; localStorage.removeItem('np_token'); this.tokenInput=''; this.tokenMsg=''; },
     toggleTheme(){ this.dark=!this.dark; document.documentElement.classList.toggle('dark', this.dark); localStorage.setItem('np_theme', this.dark?'dark':'light'); },
     autosize(el){ el.style.height='auto'; el.style.height=Math.min(el.scrollHeight,160)+'px'; },
     scrollDown(){ this.$nextTick(()=>{ this.$refs.scroll.scrollTop=this.$refs.scroll.scrollHeight; }); },
@@ -425,7 +450,11 @@ function app(){
       try{
         const resp = await this.apiFetch('/chat', { method:'POST', headers:{'Content-Type':'application/json'},
           body: JSON.stringify({ message:q, session_id:this.sessionId, user_id:this.userId, history, reasoning:this.reasoningOn, units:this.units }) });
-        if(!resp.ok){ const t=await resp.text().catch(()=> ''); throw new Error(resp.status===429?'You are sending requests too quickly. Please wait a moment.':('Request failed ('+resp.status+')')); }
+        if(!resp.ok){
+          const j = await resp.json().catch(()=>({}));
+          if(resp.status===429 && j.limit==='daily'){ this.limitReached=true; m.error=j.error||"You have reached today's free limit."; this.openToken(); return; }
+          throw new Error(j.error || (resp.status===429 ? 'You are sending requests too quickly. Please wait a moment.' : ('Request failed ('+resp.status+')')));
+        }
         const reader=resp.body.getReader(); const dec=new TextDecoder(); let buf='';
         while(true){
           const {value,done}=await reader.read(); if(done) break;

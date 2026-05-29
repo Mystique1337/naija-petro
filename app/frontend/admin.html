@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="en" class="dark h-full">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Naija-Petro · Admin</title>
+<!-- build: admin-1 -->
+<meta name="robots" content="noindex,nofollow" />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛢️</text></svg>" />
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    darkMode: 'class',
+    theme: { extend: {
+      colors: { naija: { DEFAULT:'#16a34a', soft:'#22c55e', deep:'#0c5a32', glow:'#4ade80' }, flare:'#f59e0b' },
+      fontFamily: { sans:['Inter','ui-sans-serif','system-ui'], mono:['JetBrains Mono','ui-monospace','monospace'] },
+    }}
+  }
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3/dist/cdn.min.js"></script>
+<style>
+  :root{ color-scheme: dark; }
+  body{ font-family:'Inter',sans-serif; background:radial-gradient(1200px 600px at 50% -10%, #0c1813 0%, #060a08 60%); color:#dbe7e0; }
+  .panel{ background:#0f1714; border:1px solid #1f2d27; }
+  .mono{ font-family:'JetBrains Mono',monospace; }
+  ::-webkit-scrollbar{ width:9px;height:9px } ::-webkit-scrollbar-thumb{ background:#22311f; border-radius:6px }
+  [x-cloak]{ display:none!important }
+  .sw{ width:42px;height:24px;border-radius:9999px;position:relative;transition:.18s;cursor:pointer;flex:none }
+  .sw::after{ content:'';position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:#fff;transition:.18s }
+  .sw.on{ background:#16a34a } .sw.off{ background:#33473d } .sw.on::after{ transform:translateX(18px) }
+</style>
+</head>
+<body class="min-h-full">
+<div x-data="admin()" x-init="init()" x-cloak class="max-w-5xl mx-auto px-4 sm:px-6 py-6">
+
+  <!-- Header -->
+  <header class="flex items-center gap-3 mb-6">
+    <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-naija to-naija-deep grid place-items-center text-lg shadow-lg shadow-naija/20">🛢️</div>
+    <div class="leading-tight">
+      <div class="font-bold tracking-tight">Naija-Petro Admin</div>
+      <div class="text-[11px] text-naija-soft/90 font-medium">Access tokens and usage</div>
+    </div>
+    <div class="ml-auto flex items-center gap-2 text-xs">
+      <a href="/" class="px-2.5 py-1 rounded-full border border-[#1f2d27] hover:border-naija">Open app</a>
+      <button x-show="authed" @click="logout()" class="px-2.5 py-1 rounded-full border border-[#1f2d27] hover:border-naija">Lock</button>
+    </div>
+  </header>
+
+  <!-- Login -->
+  <div x-show="!authed" class="max-w-sm mx-auto mt-10">
+    <div class="panel rounded-2xl p-6">
+      <div class="text-center mb-4">
+        <div class="text-3xl mb-2">🔒</div>
+        <div class="font-bold">Admin access</div>
+        <div class="text-xs opacity-60 mt-1">Enter your admin token to manage tokens and view usage.</div>
+      </div>
+      <form @submit.prevent="login()">
+        <input x-model="adminToken" type="password" autocomplete="off" placeholder="Admin token"
+          class="w-full bg-[#0a130f] border border-[#1f2d27] focus:border-naija rounded-xl px-3.5 py-2.5 text-sm mono outline-none" />
+        <button type="submit" :disabled="busy"
+          class="w-full mt-3 bg-naija hover:bg-naija-soft text-[#04240f] font-semibold rounded-xl px-4 py-2.5 text-sm disabled:opacity-50">
+          <span x-text="busy ? 'Checking...' : 'Unlock'"></span>
+        </button>
+      </form>
+      <p x-show="error" x-text="error" class="text-rose-400 text-xs mt-3 text-center"></p>
+    </div>
+  </div>
+
+  <!-- Dashboard -->
+  <div x-show="authed" class="space-y-6">
+
+    <!-- Stats -->
+    <section class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <template x-for="s in statCards" :key="s.label">
+        <div class="panel rounded-2xl p-4">
+          <div class="text-2xl font-extrabold tracking-tight text-naija-soft" x-text="s.value"></div>
+          <div class="text-[11px] uppercase tracking-wide opacity-55 mt-1" x-text="s.label"></div>
+        </div>
+      </template>
+    </section>
+
+    <!-- Tokens -->
+    <section class="panel rounded-2xl overflow-hidden">
+      <div class="flex items-center gap-3 px-5 py-4 border-b border-[#1f2d27]">
+        <div>
+          <div class="font-semibold text-sm">Access tokens</div>
+          <div class="text-[11px] opacity-55" x-text="`${counts.primary||0}/3 primary, ${counts.secondary||0}/7 secondary. Holders bypass the daily limit.`"></div>
+        </div>
+        <button @click="showCreate=!showCreate" class="ml-auto text-xs px-3 py-1.5 rounded-full border border-[#1f2d27] hover:border-naija">+ New token</button>
+      </div>
+
+      <!-- create -->
+      <div x-show="showCreate" class="px-5 py-4 border-b border-[#1f2d27] bg-[#0b110e] flex flex-wrap items-end gap-3">
+        <label class="text-xs">
+          <span class="block opacity-60 mb-1">Label</span>
+          <input x-model="newLabel" placeholder="e.g. Partner team" class="bg-[#0a130f] border border-[#1f2d27] focus:border-naija rounded-lg px-3 py-2 text-sm outline-none w-48" />
+        </label>
+        <label class="text-xs">
+          <span class="block opacity-60 mb-1">Kind</span>
+          <select x-model="newKind" class="bg-[#0a130f] border border-[#1f2d27] focus:border-naija rounded-lg px-3 py-2 text-sm outline-none">
+            <option value="secondary">Secondary (deactivatable)</option>
+            <option value="primary">Primary</option>
+          </select>
+        </label>
+        <button @click="createToken()" :disabled="busy" class="bg-naija hover:bg-naija-soft text-[#04240f] font-semibold rounded-lg px-4 py-2 text-sm disabled:opacity-50">Generate</button>
+        <p x-show="createError" x-text="createError" class="text-rose-400 text-xs w-full"></p>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead class="text-[11px] uppercase tracking-wide opacity-55 text-left">
+            <tr class="border-b border-[#1f2d27]">
+              <th class="px-5 py-2.5 font-medium">Kind</th>
+              <th class="px-3 py-2.5 font-medium">Label</th>
+              <th class="px-3 py-2.5 font-medium">Token</th>
+              <th class="px-3 py-2.5 font-medium">Active</th>
+            </tr>
+          </thead>
+          <tbody>
+            <template x-for="t in tokens" :key="t.id">
+              <tr class="border-b border-[#162019] last:border-0">
+                <td class="px-5 py-3">
+                  <span class="text-[10px] uppercase font-bold px-2 py-0.5 rounded-full"
+                    :class="t.kind==='primary' ? 'bg-naija/20 text-naija-soft' : 'bg-flare/15 text-flare'" x-text="t.kind"></span>
+                </td>
+                <td class="px-3 py-3" x-text="t.label || '-'"></td>
+                <td class="px-3 py-3">
+                  <div class="flex items-center gap-2">
+                    <code class="mono text-xs bg-[#0a130f] border border-[#1f2d27] rounded px-2 py-1" x-text="t.shown ? t.token : mask(t.token)"></code>
+                    <button @click="t.shown=!t.shown" class="text-[11px] opacity-60 hover:opacity-100" x-text="t.shown?'hide':'show'"></button>
+                    <button @click="copy(t)" class="text-[11px] opacity-60 hover:opacity-100" x-text="t.copied?'copied':'copy'"></button>
+                  </div>
+                </td>
+                <td class="px-3 py-3">
+                  <div class="flex items-center gap-2">
+                    <div class="sw" :class="t.active?'on':'off'" @click="toggle(t)" :title="t.active?'Active':'Inactive'"></div>
+                    <span class="text-xs opacity-60" x-text="t.active?'on':'off'"></span>
+                  </div>
+                </td>
+              </tr>
+            </template>
+            <template x-if="tokens.length===0">
+              <tr><td colspan="4" class="px-5 py-8 text-center text-sm opacity-50">No tokens yet. Generate one above, or run scripts/seed_tokens.py.</td></tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Daily usage -->
+    <section class="panel rounded-2xl overflow-hidden">
+      <div class="px-5 py-4 border-b border-[#1f2d27] font-semibold text-sm">Daily usage (last 14 days)</div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead class="text-[11px] uppercase tracking-wide opacity-55 text-left">
+            <tr class="border-b border-[#1f2d27]">
+              <th class="px-5 py-2.5 font-medium">Day</th>
+              <th class="px-3 py-2.5 font-medium">Queries</th>
+              <th class="px-3 py-2.5 font-medium">Users</th>
+              <th class="px-3 py-2.5 font-medium">Sessions</th>
+              <th class="px-3 py-2.5 font-medium">Avg latency</th>
+              <th class="px-3 py-2.5 font-medium">Docs added</th>
+            </tr>
+          </thead>
+          <tbody>
+            <template x-for="d in daily" :key="d.day">
+              <tr class="border-b border-[#162019] last:border-0">
+                <td class="px-5 py-2.5 mono text-xs" x-text="d.day"></td>
+                <td class="px-3 py-2.5" x-text="d.queries"></td>
+                <td class="px-3 py-2.5" x-text="d.users"></td>
+                <td class="px-3 py-2.5" x-text="d.sessions"></td>
+                <td class="px-3 py-2.5" x-text="d.avg_latency_ms ? d.avg_latency_ms+' ms' : '-'"></td>
+                <td class="px-3 py-2.5" x-text="d.docs_added || 0"></td>
+              </tr>
+            </template>
+            <template x-if="daily.length===0">
+              <tr><td colspan="6" class="px-5 py-8 text-center text-sm opacity-50">No usage recorded yet.</td></tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <footer class="text-center text-[11px] opacity-45 pt-2 pb-6">
+      Built by Ashinze Emmanuel ·
+      <a href="https://github.com/Mystique1337/naija-petro" class="hover:text-naija-soft">GitHub</a> ·
+      <a href="https://huggingface.co/Shinzmann" class="hover:text-naija-soft">Hugging Face</a>
+    </footer>
+  </div>
+</div>
+
+<script>
+function admin(){
+  return {
+    adminToken: sessionStorage.getItem('np_admin') || '',
+    authed: false, busy: false, error: '',
+    tokens: [], daily: [], summary: {}, today: 0, counts: {},
+    showCreate: false, newLabel: '', newKind: 'secondary', createError: '',
+
+    get statCards(){
+      const s = this.summary || {};
+      return [
+        { label: 'Queries today', value: this.today ?? 0 },
+        { label: 'Total queries', value: s.total_queries ?? 0 },
+        { label: 'Unique users', value: s.unique_users ?? 0 },
+        { label: 'Sessions', value: s.total_sessions ?? 0 },
+      ];
+    },
+
+    async init(){ if (this.adminToken) await this.login(true); },
+
+    hdr(){ return { 'X-Admin-Token': this.adminToken, 'Content-Type': 'application/json' }; },
+
+    async login(silent){
+      this.busy = true; this.error = '';
+      try {
+        const r = await fetch('/admin/api/auth', { headers: this.hdr() });
+        const j = await r.json();
+        if (j.ok){ this.authed = true; sessionStorage.setItem('np_admin', this.adminToken); await this.refresh(); }
+        else { this.authed = false; sessionStorage.removeItem('np_admin'); if (!silent) this.error = 'Invalid admin token.'; }
+      } catch(e){ if (!silent) this.error = 'Could not reach the server.'; }
+      this.busy = false;
+    },
+
+    logout(){ this.authed = false; this.adminToken = ''; sessionStorage.removeItem('np_admin'); },
+
+    async refresh(){
+      try {
+        const [tr, sr] = await Promise.all([
+          fetch('/admin/api/tokens', { headers: this.hdr() }),
+          fetch('/admin/api/stats', { headers: this.hdr() }),
+        ]);
+        const tj = await tr.json();
+        this.tokens = (tj.tokens || []).map(t => ({ ...t, shown:false, copied:false }));
+        this.counts = this.tokens.reduce((a,t)=>{ a[t.kind]=(a[t.kind]||0)+1; return a; }, {});
+        const sj = await sr.json();
+        this.summary = sj.summary || {}; this.today = sj.today || 0;
+        this.daily = (sj.daily || []).map(d => ({ ...d, day: String(d.day).slice(0,10) }));
+      } catch(e){}
+    },
+
+    mask(tok){ return (tok || '').slice(0, 7) + '...' + (tok || '').slice(-4); },
+
+    async copy(t){
+      try { await navigator.clipboard.writeText(t.token); t.copied = true; setTimeout(()=>{ t.copied = false; }, 1200); } catch(e){}
+    },
+
+    async toggle(t){
+      const next = !t.active; t.active = next;          // optimistic
+      try {
+        const r = await fetch('/admin/api/tokens/toggle', { method:'POST', headers: this.hdr(), body: JSON.stringify({ id: t.id, active: next }) });
+        if (!r.ok) t.active = !next;
+      } catch(e){ t.active = !next; }
+    },
+
+    async createToken(){
+      this.busy = true; this.createError = '';
+      try {
+        const r = await fetch('/admin/api/tokens/create', { method:'POST', headers: this.hdr(),
+          body: JSON.stringify({ label: this.newLabel, kind: this.newKind }) });
+        const j = await r.json();
+        if (j.ok){ this.newLabel = ''; this.showCreate = false; await this.refresh(); }
+        else { this.createError = j.error || 'Could not create token.'; }
+      } catch(e){ this.createError = 'Could not reach the server.'; }
+      this.busy = false;
+    },
+  };
+}
+</script>
+</body>
+</html>
