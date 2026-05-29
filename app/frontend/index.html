@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Naija-Petro · Petroleum Engineering Assistant</title>
-<!-- build: ui-6 (units, history, upload, feature board) -->
+<!-- build: ui-7 (access gate) -->
 <meta name="description" content="Nigeria-aware petroleum engineering AI with verifiable, cited sources." />
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛢️</text></svg>" />
 <script>tailwind = window.tailwind || {}; </script>
@@ -315,6 +315,19 @@
       </template>
     </div>
   </div>
+
+  <!-- Access gate (lock screen, shown when the server requires a key) -->
+  <div x-show="gated" x-cloak class="fixed inset-0 z-[60] grid place-items-center dark:bg-[#070b09] bg-[#f7faf8] p-4">
+    <div class="w-full max-w-sm text-center">
+      <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-naija to-naija-deep grid place-items-center text-2xl mx-auto mb-3">🔒</div>
+      <h2 class="text-xl font-bold mb-1">Naija-Petro</h2>
+      <p class="text-sm opacity-70 mb-4">This assistant is private. Enter your access key to continue.</p>
+      <input x-model="keyInput" type="password" @keydown.enter="submitKey()" placeholder="Access key" autofocus
+        class="w-full dark:bg-[#0a130f] bg-white border dark:border-[#1f2d27] border-[#e3ece7] focus:border-naija rounded-xl px-3 py-2.5 text-sm outline-none mb-2 text-center">
+      <div class="text-xs text-red-400 mb-2" x-show="keyError" x-text="keyError"></div>
+      <button @click="submitKey()" class="w-full bg-naija hover:bg-naija-soft text-white text-sm font-semibold rounded-xl py-2.5">Unlock</button>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -326,6 +339,7 @@ function app(){
     showHistory:false, sessions:[],
     showFeature:false, featureText:'', featureSent:false, featureError:'',
     uploading:false, uploadMsg:'',
+    gated:false, accessKey:(localStorage.getItem('np_key')||''), keyInput:'', keyError:'',
     sessionId: uid(), userId: persistUid(),
     kb: { documents:0, chunks:0 },
     examples: [
@@ -334,13 +348,38 @@ function app(){
       "Derive the material balance equation for an undersaturated reservoir.",
       "Screening criteria for CO2 EOR in Niger Delta reservoirs?",
     ],
-    init(){
+    async init(){
       this.dark = (localStorage.getItem('np_theme')||'dark')==='dark';
       document.documentElement.classList.toggle('dark', this.dark);
       marked.setOptions({ breaks:true, gfm:true });
-      this.refreshKb();
-      // Show the email modal on every app open (unless already subscribed). Closable.
-      if(localStorage.getItem('np_sub')!=='1'){ setTimeout(()=>{ this.emailModal=true; }, 800); }
+      // Access gate: if the server is gated, require a valid key before using the app.
+      try{
+        const hd = await (await fetch('/healthz')).json();
+        if(hd.gated){
+          if(this.accessKey){
+            const ad = await (await fetch('/auth?key='+encodeURIComponent(this.accessKey))).json();
+            if(!ad.ok){ this.accessKey=''; localStorage.removeItem('np_key'); this.gated=true; }
+          } else { this.gated=true; }
+        }
+      }catch(e){}
+      if(!this.gated){
+        this.refreshKb();
+        if(localStorage.getItem('np_sub')!=='1'){ setTimeout(()=>{ this.emailModal=true; }, 800); }
+      }
+    },
+    apiFetch(url, opts){
+      opts = opts || {};
+      opts.headers = Object.assign({}, opts.headers||{}, this.accessKey ? {'X-Access-Key': this.accessKey} : {});
+      return fetch(url, opts).then(r => { if(r.status===401){ this.gated=true; } return r; });
+    },
+    async submitKey(){
+      const k=(this.keyInput||'').trim();
+      if(!k){ this.keyError='Enter the access key.'; return; }
+      try{
+        const d = await (await fetch('/auth?key='+encodeURIComponent(k))).json();
+        if(d.ok){ this.accessKey=k; localStorage.setItem('np_key',k); this.gated=false; this.keyError=''; this.keyInput=''; this.refreshKb(); }
+        else { this.keyError='Incorrect access key.'; }
+      }catch(e){ this.keyError='Network error, please try again.'; }
     },
     toggleTheme(){ this.dark=!this.dark; document.documentElement.classList.toggle('dark', this.dark); localStorage.setItem('np_theme', this.dark?'dark':'light'); },
     autosize(el){ el.style.height='auto'; el.style.height=Math.min(el.scrollHeight,160)+'px'; },
@@ -372,7 +411,7 @@ function app(){
     typeset(){ this.$nextTick(()=>{ try{ if(window.renderMathInElement) renderMathInElement(this.$refs.scroll, {
       delimiters:[{left:'\\[',right:'\\]',display:true},{left:'$$',right:'$$',display:true},{left:'\\(',right:'\\)',display:false}], throwOnError:false }); }catch(e){} }); },
 
-    async refreshKb(){ try{ const r=await fetch('/kb/stats'); if(r.ok){ const d=await r.json(); if(d&&d.documents!=null) this.kb=d; } }catch(e){} },
+    async refreshKb(){ try{ const r=await this.apiFetch('/kb/stats'); if(r.ok){ const d=await r.json(); if(d&&d.documents!=null) this.kb=d; } }catch(e){} },
 
     async send(text){
       const q=(text||this.input).trim(); if(!q||this.busy) return;
@@ -384,7 +423,7 @@ function app(){
       const m = this.messages[this.messages.length-1];
       this.scrollDown();
       try{
-        const resp = await fetch('/chat', { method:'POST', headers:{'Content-Type':'application/json'},
+        const resp = await this.apiFetch('/chat', { method:'POST', headers:{'Content-Type':'application/json'},
           body: JSON.stringify({ message:q, session_id:this.sessionId, user_id:this.userId, history, reasoning:this.reasoningOn, units:this.units }) });
         if(!resp.ok){ const t=await resp.text().catch(()=> ''); throw new Error(resp.status===429?'You are sending requests too quickly. Please wait a moment.':('Request failed ('+resp.status+')')); }
         const reader=resp.body.getReader(); const dec=new TextDecoder(); let buf='';
@@ -412,11 +451,11 @@ function app(){
     async rate(m, val){
       m.feedback = m.feedback===val ? 0 : val;
       m.showComment = m.feedback!==0 && !m.commentSent;
-      try{ await fetch('/feedback', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(this.fbPayload(m)) }); }catch(e){}
+      try{ await this.apiFetch('/feedback', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(this.fbPayload(m)) }); }catch(e){}
     },
     async sendComment(m){
       m.commentSent=true; m.showComment=false;
-      try{ await fetch('/feedback', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(this.fbPayload(m)) }); }catch(e){}
+      try{ await this.apiFetch('/feedback', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(this.fbPayload(m)) }); }catch(e){}
     },
     openEmail(){ this.emailError=''; this.emailModal=true; },
     dismissEmail(){ this.emailModal=false; },   // close for now; reappears next time the app opens
@@ -425,7 +464,7 @@ function app(){
       if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)){ this.emailError='Please enter a valid email.'; return; }
       this.emailError='';
       try{
-        const r=await fetch('/subscribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:e, wants_updates:this.wantsUpdates})});
+        const r=await this.apiFetch('/subscribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:e, wants_updates:this.wantsUpdates})});
         if(r.ok){ this.subscribed=true; localStorage.setItem('np_sub','1'); setTimeout(()=>{ this.emailModal=false; }, 1500); }
         else { const d=await r.json().catch(()=>({})); this.emailError=d.error||'Could not save right now.'; }
       }catch(err){ this.emailError='Network error, please try again.'; }
@@ -433,13 +472,13 @@ function app(){
     toggleUnits(){ this.units = this.units==='field'?'si':'field'; localStorage.setItem('np_units', this.units); },
     async openHistory(){
       this.showHistory=true;
-      try{ const r=await fetch('/history?user_id='+encodeURIComponent(this.userId)); if(r.ok){ const d=await r.json(); this.sessions=d.sessions||[]; } }catch(e){}
+      try{ const r=await this.apiFetch('/history?user_id='+encodeURIComponent(this.userId)); if(r.ok){ const d=await r.json(); this.sessions=d.sessions||[]; } }catch(e){}
     },
     newChat(){ this.messages=[]; this.sessionId=uid(); this.showHistory=false; },
     async openSession(sid){
       this.showHistory=false;
       try{
-        const r=await fetch('/history/'+encodeURIComponent(sid)); if(!r.ok) return;
+        const r=await this.apiFetch('/history/'+encodeURIComponent(sid)); if(!r.ok) return;
         const d=await r.json(); this.messages=[];
         for(const t of (d.turns||[])){
           if(t.role==='user') this.messages.push({role:'user', content:t.content});
@@ -453,7 +492,7 @@ function app(){
       const t=(this.featureText||'').trim();
       if(t.length<3){ this.featureError='Please describe the feature.'; return; }
       try{
-        const r=await fetch('/feature',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:t, email:(this.email||null), session_id:this.sessionId})});
+        const r=await this.apiFetch('/feature',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:t, email:(this.email||null), session_id:this.sessionId})});
         if(r.ok){ this.featureSent=true; this.featureText=''; setTimeout(()=>{ this.showFeature=false; }, 1600); }
         else { const d=await r.json().catch(()=>({})); this.featureError=d.error||'Could not save right now.'; }
       }catch(e){ this.featureError='Network error, please try again.'; }
@@ -463,7 +502,7 @@ function app(){
       this.uploading=true; this.uploadMsg='Uploading '+f.name+' ...';
       const fd=new FormData(); fd.append('file', f); fd.append('session_id', this.sessionId); fd.append('user_id', this.userId);
       try{
-        const r=await fetch('/upload',{method:'POST', body:fd});
+        const r=await this.apiFetch('/upload',{method:'POST', body:fd});
         const d=await r.json().catch(()=>({}));
         if(r.ok && d.ok){ this.uploadMsg = d.inserted ? `Added "${d.filename}" (${d.chunks} chunks). You can ask about it now.` : `"${d.filename}" is already in the knowledge base.`; this.refreshKb(); }
         else { this.uploadMsg = (d.error||'Upload failed.'); }

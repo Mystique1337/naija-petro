@@ -145,10 +145,29 @@ def _hash_ip(ip: str) -> str:
 def create_app(deps: Deps) -> FastAPI:
     api = FastAPI(title="Naija-Petro", version="0.2.0")
 
+    # Access gate: when ACCESS_KEY is set, every endpoint except the page, health,
+    # and the key-check requires a matching X-Access-Key header (or ?key=). This
+    # blocks anyone on the internet from making calls without the key.
+    _OPEN_PATHS = ("/", "/healthz", "/auth")
+
+    @api.middleware("http")
+    async def _gate(request: Request, call_next):
+        if settings.access_key:
+            p = request.url.path
+            if not (p in _OPEN_PATHS or p.startswith("/static")):
+                key = request.headers.get("x-access-key") or request.query_params.get("key", "")
+                if key != settings.access_key:
+                    return JSONResponse({"error": "Unauthorized. An access key is required."}, status_code=401)
+        return await call_next(request)
+
     @api.get("/healthz")
     async def healthz():
         from app import __version__
-        return {"status": "ok", "version": __version__}
+        return {"status": "ok", "version": __version__, "gated": bool(settings.access_key)}
+
+    @api.get("/auth")
+    async def auth(key: str = ""):
+        return {"ok": bool(settings.access_key) and key == settings.access_key}
 
     @api.get("/kb/stats")
     async def kb_stats():
