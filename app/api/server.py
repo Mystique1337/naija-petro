@@ -26,6 +26,27 @@ from app.config import settings
 from app.rag import db
 from app.rag.prompts import build_messages
 from app.rag.retriever import retrieve
+from app.tools.calculators import CALCULATORS, TOOL_MENU, needs_tools, run_tool
+
+TOOL_SELECT_SYS = (
+    "You pick a calculator for a petroleum-engineering question. Given the list and the "
+    "question, if exactly one calculator clearly applies and its arguments can be filled "
+    "with numbers from the question, reply with ONLY a JSON object "
+    '{"tool": "<name>", "args": {...}} using numeric values. If none applies or required '
+    "numbers are missing, reply with exactly {}. No prose, no markdown, no <think> tags."
+)
+
+
+def _parse_json_obj(text: str):
+    import json
+    s = (text or "").strip()
+    a, b = s.find("{"), s.rfind("}")
+    if a == -1 or b <= a:
+        return None
+    try:
+        return json.loads(s[a:b + 1])
+    except Exception:
+        return None
 
 FRONTEND_DIR = Path(os.environ.get("FRONTEND_DIR") or (Path(__file__).resolve().parent.parent / "frontend"))
 
@@ -74,6 +95,11 @@ class FeedbackRequest(BaseModel):
 class SubscribeRequest(BaseModel):
     email: str
     wants_updates: bool = False
+
+
+class ToolRunRequest(BaseModel):
+    name: str
+    args: dict = {}
 
 
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -151,6 +177,14 @@ def create_app(deps: Deps) -> FastAPI:
             return JSONResponse({"error": "Could not save right now."}, status_code=503)
         return {"ok": True}
 
+    @api.get("/tools")
+    async def tools_list():
+        return {"calculators": [{"name": n, "description": d} for n, (_, d) in CALCULATORS.items()]}
+
+    @api.post("/tools/run")
+    async def tools_run(req: ToolRunRequest):
+        return run_tool(req.name, req.args)
+
     @api.post("/chat")
     async def chat(req: ChatRequest, request: Request):
         # --- gates (checked before we start streaming) ---
@@ -221,6 +255,28 @@ def create_app(deps: Deps) -> FastAPI:
                         reranked=result.reranked,
                         trace_id=obs.current_trace_id(),
                     )
+
+                    # Tool pre-pass: for computational questions, the model picks a
+                    # calculator (JSON), we compute exact figures and inject them so the
+                    # streamed answer uses verified numbers, not estimates.
+                    if needs_tools(msg) and deps.llm_complete:
+                        try:
+                            sel = await deps.llm_complete(
+                                [{"role": "system", "content": TOOL_SELECT_SYS},
+                                 {"role": "user", "content": f"Calculators:\n{TOOL_MENU}\n\nQuestion: {msg}\n\nJSON:"}],
+                                {"max_tokens": 160, "temperature": 0.0, "reasoning": False},
+                            )
+                            obj = _parse_json_obj(sel)
+                            if obj and obj.get("tool") in CALCULATORS:
+                                res = run_tool(obj["tool"], obj.get("args", {}))
+                                if "error" not in res:
+                                    yield _sse("tool", name=obj["tool"], args=obj.get("args", {}), result=res)
+                                    messages[-1]["content"] += (
+                                        "\n\n# Verified calculation (use these exact figures)\n"
+                                        f"{obj['tool']}({json.dumps(obj.get('args', {}))}) = {json.dumps(res)}"
+                                    )
+                        except Exception:
+                            pass
 
                     # Stream tokens, heartbeating until the first token (LLM may be cold).
                     parts: list[str] = []

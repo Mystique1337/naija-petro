@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Naija-Petro · Petroleum Engineering Assistant</title>
-<!-- build: ui-4 (email capture + feedback notes) -->
+<!-- build: ui-5 (tool calculators + email-on-open) -->
 <meta name="description" content="Nigeria-aware petroleum engineering AI with verifiable, cited sources." />
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛢️</text></svg>" />
 <script>tailwind = window.tailwind || {}; </script>
@@ -134,6 +134,22 @@
                     <span class="ml-auto opacity-50" x-text="m.showReason||m.thinking?'▲':'▼'"></span>
                   </button>
                   <div x-show="m.showReason || m.thinking" class="reason px-3 py-2.5 border-t dark:border-[#1f2d27] border-[#e3ece7] max-h-72 overflow-y-auto" x-text="m.reasoning"></div>
+                </div>
+              </template>
+
+              <!-- tool calculations -->
+              <template x-if="m.tools && m.tools.length">
+                <div class="mb-2.5 space-y-1.5">
+                  <template x-for="(t,ti) in m.tools" :key="ti">
+                    <div class="rounded-xl border border-naija/40 dark:bg-[#0c1f14] bg-naija/5 px-3 py-2 text-xs">
+                      <div class="font-semibold text-naija-soft mb-1">🧮 <span x-text="String(t.name).replace(/_/g,' ')"></span></div>
+                      <div class="flex flex-wrap gap-x-4 gap-y-0.5">
+                        <template x-for="(v,k) in t.result" :key="k">
+                          <span x-show="k!=='formula' && k!=='units'"><span class="opacity-60" x-text="k"></span>: <span class="font-semibold" x-text="(typeof v==='number'? v.toLocaleString() : v)"></span></span>
+                        </template>
+                      </div>
+                    </div>
+                  </template>
                 </div>
               </template>
 
@@ -270,6 +286,8 @@ function app(){
       document.documentElement.classList.toggle('dark', this.dark);
       marked.setOptions({ breaks:true, gfm:true });
       this.refreshKb();
+      // Show the email modal on every app open (unless already subscribed). Closable.
+      if(localStorage.getItem('np_sub')!=='1'){ setTimeout(()=>{ this.emailModal=true; }, 800); }
     },
     toggleTheme(){ this.dark=!this.dark; document.documentElement.classList.toggle('dark', this.dark); localStorage.setItem('np_theme', this.dark?'dark':'light'); },
     autosize(el){ el.style.height='auto'; el.style.height=Math.min(el.scrollHeight,160)+'px'; },
@@ -309,7 +327,7 @@ function app(){
       this.busy=true;
       this.messages.push({ role:'user', content:q });
       const history = this.messages.filter(x=>x.role==='user'||x.role==='assistant').slice(-7,-1).map(x=>({role:x.role, content:(x.answer||x.content||'')}));
-      this.messages.push({ role:'assistant', raw:'', reasoning:'', answer:'', html:'', sources:[], meta:null, streaming:true, stage:'starting', thinking:false, showReason:false, error:null, followups:[], feedback:0, traceId:null, query:q, showComment:false, comment:'', commentSent:false });
+      this.messages.push({ role:'assistant', raw:'', reasoning:'', answer:'', html:'', sources:[], meta:null, streaming:true, stage:'starting', thinking:false, showReason:false, error:null, followups:[], feedback:0, traceId:null, query:q, showComment:false, comment:'', commentSent:false, tools:[] });
       const m = this.messages[this.messages.length-1];
       this.scrollDown();
       try{
@@ -326,9 +344,10 @@ function app(){
             let evt; try{ evt=JSON.parse(line.slice(5).trim()); }catch(e){ continue; }
             if(evt.type==='status'){ m.stage=evt.stage; }
             else if(evt.type==='meta'){ m.sources=evt.sources||[]; m.meta=evt; m.traceId=evt.trace_id||null; if(evt.kb_added) this.refreshKb(); }
+            else if(evt.type==='tool'){ m.tools.push({name:evt.name, args:evt.args, result:evt.result}); this.scrollDown(); }
             else if(evt.type==='token'){ m.raw+=evt.t; const p=this.splitThink(m.raw); m.reasoning=p.reasoning; m.thinking=p.thinking; m.answer=p.answer; m.html=this.render(m.answer, m.sources); this.scrollDown(); }
             else if(evt.type==='followups'){ m.followups=evt.items||[]; }
-            else if(evt.type==='done'){ m.streaming=false; m.thinking=false; m.html=this.render(m.answer,m.sources); this.typeset(); this.maybeAskEmail(); }
+            else if(evt.type==='done'){ m.streaming=false; m.thinking=false; m.html=this.render(m.answer,m.sources); this.typeset(); }
             else if(evt.type==='error'){ m.error=evt.message; m.streaming=false; m.thinking=false; }
           }
         }
@@ -346,9 +365,8 @@ function app(){
       m.commentSent=true; m.showComment=false;
       try{ await fetch('/feedback', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(this.fbPayload(m)) }); }catch(e){}
     },
-    maybeAskEmail(){ if(!localStorage.getItem('np_sub')){ setTimeout(()=>{ if(!localStorage.getItem('np_sub')) this.emailModal=true; }, 1500); } },
     openEmail(){ this.emailError=''; this.emailModal=true; },
-    dismissEmail(){ this.emailModal=false; localStorage.setItem('np_sub','dismissed'); },
+    dismissEmail(){ this.emailModal=false; },   // close for now; reappears next time the app opens
     async subscribe(){
       const e=(this.email||'').trim();
       if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)){ this.emailError='Please enter a valid email.'; return; }
