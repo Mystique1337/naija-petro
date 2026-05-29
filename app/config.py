@@ -32,13 +32,13 @@ class Settings:
     # --- Model serving ---
     model_repo: str = os.environ.get("MODEL_REPO", "Shinzmann/naija-petro-8b")
     llm_gpu: str = os.environ.get("LLM_GPU", "A10G")
-    llm_scaledown_window: int = _i("LLM_SCALEDOWN_WINDOW", 300)
+    llm_scaledown_window: int = _i("LLM_SCALEDOWN_WINDOW", 120)
     max_model_len: int = _i("MAX_MODEL_LEN", 8192)
 
     # --- Embeddings / reranker ---
     embed_model: str = os.environ.get("EMBED_MODEL", "nomic-ai/nomic-embed-text-v1.5")
     embed_dim: int = _i("EMBED_DIM", 768)
-    enable_rerank: bool = _b("ENABLE_RERANK", True)
+    enable_rerank: bool = _b("ENABLE_RERANK", False)   # off by default (CPU rerank is slow); RRF hybrid stays
     rerank_model: str = os.environ.get("RERANK_MODEL", "BAAI/bge-reranker-v2-m3")
 
     # --- Data stores / services ---

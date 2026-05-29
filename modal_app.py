@@ -31,7 +31,9 @@ FRONTEND_REMOTE = "/assets/frontend"
 # One secret bundle, created from .env (see scripts/setup_modal_secret.sh).
 secrets = [modal.Secret.from_name("naija-petro-secrets")]
 
-EMBED_GPU = os.environ.get("EMBED_GPU", "L4")
+# Embeddings run on CPU by default (cheap, no second GPU). Set EMBED_GPU=L4 to
+# move them back onto a GPU if you enable the cross-encoder reranker at scale.
+EMBED_GPU = os.environ.get("EMBED_GPU", "")
 VLLM_PORT = 8000
 
 
@@ -153,7 +155,7 @@ class LLMService:
 # --------------------------------------------------------------------------- #
 @app.cls(
     image=encoders_image,
-    gpu=EMBED_GPU,
+    gpu=(EMBED_GPU or None),          # CPU by default (no second GPU)
     volumes={HF_CACHE_DIR: hf_cache},
     secrets=secrets,
     scaledown_window=settings.llm_scaledown_window,
