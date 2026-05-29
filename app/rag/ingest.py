@@ -154,11 +154,12 @@ async def _ingest_one(result: dict, embed_fn: EmbedFn) -> dict:
     return res
 
 
-async def ingest_query(query: str, embed_fn: EmbedFn, max_results: int = 6) -> dict:
+async def ingest_query(query: str, embed_fn: EmbedFn, max_results: int | None = None) -> dict:
     """Search for `query`, preferring authoritative Nigerian sources, and ingest."""
+    max_results = max_results or settings.tavily_max_results
     results = await tavily_search(query, max_results=max_results, include_domains=PREFERRED_DOMAINS)
-    # Fallback to an open web pass if the curated domains return little.
-    if len(results) < 2:
+    # Also run an open-web pass so we are not limited to the curated domains.
+    if len(results) < max_results:
         results += await tavily_search(query, max_results=max_results)
 
     # De-dup by URL before fetching.

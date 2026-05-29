@@ -53,13 +53,17 @@ class Settings:
     # --- Dynamic-RAG tuning ---
     coverage_threshold: float = _f("RAG_COVERAGE_THRESHOLD", 0.55)
     min_chunks: int = _i("RAG_MIN_CHUNKS", 3)
-    top_k: int = _i("RAG_TOP_K", 20)
-    final_k: int = _i("RAG_FINAL_K", 6)
+    top_k: int = _i("RAG_TOP_K", 30)             # candidates pulled from the store
+    final_k: int = _i("RAG_FINAL_K", 10)         # passages kept for the answer
+    tavily_max_results: int = _i("TAVILY_MAX_RESULTS", 10)
+    # Hard cap on context characters fed to the model (protects the window + cost
+    # even when many sources are retrieved).
+    context_char_budget: int = _i("RAG_CONTEXT_CHARS", 16000)
     always_enrich: bool = _b("RAG_ALWAYS_ENRICH", True)
     doc_ttl_days: int = _i("RAG_DOC_TTL_DAYS", 30)
 
     # --- Chunking ---
-    chunk_chars: int = _i("RAG_CHUNK_CHARS", 1200)
+    chunk_chars: int = _i("RAG_CHUNK_CHARS", 1500)
     chunk_overlap: int = _i("RAG_CHUNK_OVERLAP", 200)
 
     # --- Generation defaults ---
@@ -86,11 +90,16 @@ settings = Settings()
 APP_NAME = "naija-petro"
 
 SYSTEM_PROMPT = (
-    "You are Naija-Petro, an expert petroleum-engineering AI assistant with a focus "
-    "on the Nigerian oil & gas sector. You provide precise, technically accurate answers "
-    "covering drilling, reservoir engineering, production, completions, EOR, well testing, "
-    "petroleum geoscience, and Nigerian regulation (PIA 2021, NUPRC, NMDPRA, NNPC). "
-    "Include equations, units, and practical considerations where relevant. "
-    "Format with markdown; write mathematics in LaTeX using \\( \\) for inline and \\[ \\] for display. "
-    "Never use em-dashes or en-dashes; use commas, colons, or hyphens instead."
+    "You are Naija-Petro, an expert petroleum-engineering AI assistant focused on the "
+    "Nigerian oil & gas sector, covering drilling, reservoir engineering, production, "
+    "completions, EOR, well testing, petroleum geoscience, and Nigerian regulation "
+    "(PIA 2021, NUPRC, NMDPRA, NNPC). Answer with engineering rigour: state assumptions "
+    "explicitly, show the governing equations and a worked step-by-step solution for any "
+    "calculation, carry units throughout, and give numeric results with units and sensible "
+    "significant figures. Name the relevant correlations, standards, or methods when they "
+    "apply (for example Darcy, Vogel, Buckley-Leverett, material balance, SPE or API "
+    "references). Note limitations and flag where field data or a qualified engineer is "
+    "needed. Structure answers with markdown headings and tables; write mathematics in "
+    "LaTeX using \\( \\) for inline and \\[ \\] for display. Ground claims in the provided "
+    "sources and cite them. Never use em-dashes or en-dashes; use commas, colons, or hyphens."
 )

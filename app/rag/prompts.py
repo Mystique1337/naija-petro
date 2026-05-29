@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from app.config import SYSTEM_PROMPT
+from app.config import SYSTEM_PROMPT, settings
 
 CITATION_INSTRUCTIONS = (
     "Use the numbered sources below to ground your answer in verifiable, Nigeria-specific "
@@ -37,16 +37,27 @@ def _dedupe_sources(chunks: list[RetrievedChunk]) -> list[RetrievedChunk]:
     return ordered
 
 
-def build_context(chunks: list[RetrievedChunk]) -> tuple[str, list[dict]]:
-    """Return (context_block, sources) where sources is UI-ready citation metadata."""
+def build_context(chunks: list[RetrievedChunk], budget: int | None = None) -> tuple[str, list[dict]]:
+    """Return (context_block, sources). Retrieval can be broad, but the context is
+    capped to a character budget so the window and cost stay bounded."""
     if not chunks:
         return "", []
 
-    sources = _dedupe_sources(chunks)
+    budget = budget or settings.context_char_budget
+    included: list[RetrievedChunk] = []
+    total = 0
+    for c in chunks:
+        seg = (c.content or "").strip()
+        if included and total + len(seg) > budget:
+            break
+        included.append(c)
+        total += len(seg) + 20
+
+    sources = _dedupe_sources(included)
     url_to_n = {(s.source_url or s.title): i + 1 for i, s in enumerate(sources)}
 
     blocks = []
-    for c in chunks:
+    for c in included:
         n = url_to_n[c.source_url or c.title]
         header = f"[{n}] {c.title or c.domain}".strip()
         blocks.append(f"{header}\n{c.content.strip()}")
