@@ -44,8 +44,9 @@ async def get_pool() -> "asyncpg.Pool":
             raise RuntimeError("SUPABASE_DB_URL is not set")
         last_err = None
         for ssl_opt in _ssl_modes():
+            pool = None
             try:
-                _pool = await asyncpg.create_pool(
+                pool = await asyncpg.create_pool(
                     dsn=settings.supabase_db_url,
                     ssl=ssl_opt,
                     min_size=1,
@@ -53,9 +54,16 @@ async def get_pool() -> "asyncpg.Pool":
                     init=_init_conn,
                     command_timeout=30,
                 )
+                await pool.fetchval("SELECT 1")  # force a real connection now
+                _pool = pool
                 break
             except Exception as e:  # fall back to plaintext only on SSL errors
                 last_err = e
+                if pool is not None:
+                    try:
+                        await pool.close()
+                    except Exception:
+                        pass
                 if "ssl" in str(e).lower():
                     continue
                 raise
