@@ -67,6 +67,15 @@ class Settings:
     temperature: float = _f("RAG_TEMPERATURE", 0.4)
     top_p: float = _f("RAG_TOP_P", 0.9)
 
+    # --- Security / limits ---
+    access_key: str = os.environ.get("ACCESS_KEY", "")        # empty = open access
+    max_query_chars: int = _i("MAX_QUERY_CHARS", 2000)
+    rate_limit_max: int = _i("RATE_LIMIT_MAX", 20)            # requests per window
+    rate_limit_window_s: int = _i("RATE_LIMIT_WINDOW_S", 60)
+    rate_limit_max_hour: int = _i("RATE_LIMIT_MAX_HOUR", 200)
+    ip_salt: str = os.environ.get("IP_SALT", "naija-petro-salt")
+    enable_followups: bool = _b("ENABLE_FOLLOWUPS", True)
+
     @property
     def langfuse_enabled(self) -> bool:
         return bool(self.langfuse_public_key and self.langfuse_secret_key)
@@ -81,5 +90,7 @@ SYSTEM_PROMPT = (
     "on the Nigerian oil & gas sector. You provide precise, technically accurate answers "
     "covering drilling, reservoir engineering, production, completions, EOR, well testing, "
     "petroleum geoscience, and Nigerian regulation (PIA 2021, NUPRC, NMDPRA, NNPC). "
-    "Include equations, units, and practical considerations where relevant."
+    "Include equations, units, and practical considerations where relevant. "
+    "Format with markdown; write mathematics in LaTeX using \\( \\) for inline and \\[ \\] for display. "
+    "Never use em-dashes or en-dashes; use commas, colons, or hyphens instead."
 )

@@ -34,6 +34,11 @@ secrets = [modal.Secret.from_name("naija-petro-secrets")]
 EMBED_GPU = os.environ.get("EMBED_GPU", "L4")
 VLLM_PORT = 8000
 
+
+def _strip_dashes(text: str) -> str:
+    """Remove em/en-dashes from model output (user preference)."""
+    return text.replace("—", "-").replace("–", "-")
+
 # --------------------------------------------------------------------------- #
 # Images
 # --------------------------------------------------------------------------- #
@@ -115,17 +120,20 @@ class LLMService:
     @modal.method()
     async def chat_stream(self, messages: list[dict], sampling: dict | None = None):
         s = sampling or {}
+        # reasoning on -> Qwen3 emits <think>...</think> before the answer (the UI
+        # renders it as a collapsible reasoning trace).
+        think = bool(s.get("reasoning", True))
         stream = await self.client.chat.completions.create(
             model=self.model_name, messages=messages, stream=True,
             temperature=s.get("temperature", settings.temperature),
             top_p=s.get("top_p", settings.top_p),
             max_tokens=s.get("max_tokens", settings.max_new_tokens),
-            extra_body={"chat_template_kwargs": {"enable_thinking": False},
+            extra_body={"chat_template_kwargs": {"enable_thinking": think},
                         "repetition_penalty": s.get("repetition_penalty", 1.1)},
         )
         async for chunk in stream:
             if chunk.choices and chunk.choices[0].delta.content:
-                yield chunk.choices[0].delta.content
+                yield _strip_dashes(chunk.choices[0].delta.content)
 
     @modal.method()
     async def complete(self, messages: list[dict], sampling: dict | None = None) -> str:
@@ -135,9 +143,9 @@ class LLMService:
             temperature=s.get("temperature", settings.temperature),
             top_p=s.get("top_p", settings.top_p),
             max_tokens=s.get("max_tokens", settings.max_new_tokens),
-            extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+            extra_body={"chat_template_kwargs": {"enable_thinking": bool(s.get("reasoning", False))}},
         )
-        return resp.choices[0].message.content or ""
+        return _strip_dashes(resp.choices[0].message.content or "")
 
 
 # --------------------------------------------------------------------------- #
@@ -187,6 +195,10 @@ async def _llm_stream(messages: list[dict], sampling: dict):
         yield tok
 
 
+async def _llm_complete(messages: list[dict], sampling: dict) -> str:
+    return await LLMService().complete.remote.aio(messages, sampling)
+
+
 def _spawn_enrich(query: str) -> None:
     enrich.spawn(query)
 
@@ -210,7 +222,8 @@ async def enrich(query: str) -> dict:
 def fastapi_app():
     from app.api.server import Deps, create_app
 
-    deps = Deps(embed=_embed, llm_stream=_llm_stream, rerank=_rerank, spawn_enrich=_spawn_enrich)
+    deps = Deps(embed=_embed, llm_stream=_llm_stream, rerank=_rerank,
+                spawn_enrich=_spawn_enrich, llm_complete=_llm_complete)
     return create_app(deps)
 
 
