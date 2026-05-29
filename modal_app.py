@@ -84,13 +84,13 @@ class LLMService:
         from openai import AsyncOpenAI
 
         self.model_name = settings.model_repo
+        # Minimal, stable flags (vLLM 0.22 removed --disable-log-requests; prefix
+        # caching is on by default in the V1 engine).
         self._proc = subprocess.Popen([
             "vllm", "serve", self.model_name,
             "--port", str(VLLM_PORT),
             "--max-model-len", str(settings.max_model_len),
             "--gpu-memory-utilization", "0.90",
-            "--enable-prefix-caching",
-            "--disable-log-requests",
         ])
         base = f"http://localhost:{VLLM_PORT}"
         deadline = time.time() + 15 * 60
