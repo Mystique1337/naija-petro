@@ -5,6 +5,7 @@ module never imports Modal — keeping it cycle-free and unit-testable with a st
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 from dataclasses import dataclass
@@ -69,6 +70,10 @@ def create_app(deps: Deps) -> FastAPI:
         }
 
         async def gen():
+            # Emit a byte immediately so the connection starts streaming before any
+            # slow work (GPU cold starts), and heartbeat during long waits so the
+            # proxy doesn't idle-close. The UI ignores "status" events.
+            yield _sse("status", stage="starting")
             try:
                 with obs.trace(
                     "chat",
@@ -77,7 +82,15 @@ def create_app(deps: Deps) -> FastAPI:
                     input=req.message,
                 ) as tr:
                     rerank_fn = deps.rerank if (settings.enable_rerank and deps.rerank) else None
-                    result = await retrieve(req.message, deps.embed, rerank_fn)
+
+                    # Retrieve, heartbeating while we wait (Encoders may be cold).
+                    rtask = asyncio.ensure_future(retrieve(req.message, deps.embed, rerank_fn))
+                    while True:
+                        try:
+                            result = await asyncio.wait_for(asyncio.shield(rtask), timeout=8)
+                            break
+                        except asyncio.TimeoutError:
+                            yield _sse("status", stage="retrieving")
                     messages, sources = build_messages(req.message, result.chunks, req.history)
 
                     tr.update(metadata={
@@ -88,8 +101,6 @@ def create_app(deps: Deps) -> FastAPI:
                         "kb_added": result.enrichment.get("new_chunks", 0),
                     })
 
-                    # Self-update after every query: if we didn't already fetch
-                    # inline, kick off a non-blocking background enrichment.
                     if settings.always_enrich and not result.enriched and deps.spawn_enrich:
                         try:
                             deps.spawn_enrich(req.message)
@@ -105,10 +116,21 @@ def create_app(deps: Deps) -> FastAPI:
                         reranked=result.reranked,
                     )
 
+                    # Stream tokens, heartbeating until the first token (LLM may be cold).
                     parts: list[str] = []
-                    async for tok in deps.llm_stream(messages, sampling):
+                    agen = deps.llm_stream(messages, sampling).__aiter__()
+                    nxt = asyncio.ensure_future(agen.__anext__())
+                    while True:
+                        try:
+                            tok = await asyncio.wait_for(asyncio.shield(nxt), timeout=8)
+                        except asyncio.TimeoutError:
+                            yield _sse("status", stage="generating")
+                            continue
+                        except StopAsyncIteration:
+                            break
                         parts.append(tok)
                         yield _sse("token", t=tok)
+                        nxt = asyncio.ensure_future(agen.__anext__())
 
                     answer = "".join(parts)
                     tr.generation("llm-generation", settings.model_repo, messages, answer)
