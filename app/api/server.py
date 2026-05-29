@@ -9,6 +9,7 @@ import asyncio
 import hashlib
 import json
 import os
+import re
 import time
 from collections import defaultdict, deque
 from dataclasses import dataclass
@@ -66,6 +67,16 @@ class FeedbackRequest(BaseModel):
     rating: int = 0          # 1 = up, -1 = down
     trace_id: Optional[str] = None
     comment: Optional[str] = None
+    answer: Optional[str] = None        # full exchange stored for training/preference data
+    sources: Optional[list] = None
+
+
+class SubscribeRequest(BaseModel):
+    email: str
+    wants_updates: bool = False
+
+
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
 def _sse(kind: str, **data) -> str:
@@ -127,6 +138,17 @@ def create_app(deps: Deps) -> FastAPI:
                 client.flush()
         except Exception:
             pass
+        return {"ok": True}
+
+    @api.post("/subscribe")
+    async def subscribe(req: SubscribeRequest):
+        email = (req.email or "").strip().lower()
+        if not _EMAIL_RE.match(email) or len(email) > 254:
+            return JSONResponse({"error": "Please enter a valid email."}, status_code=400)
+        try:
+            await db.subscribe(email, bool(req.wants_updates), source="app")
+        except Exception:
+            return JSONResponse({"error": "Could not save right now."}, status_code=503)
         return {"ok": True}
 
     @api.post("/chat")

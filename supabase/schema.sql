@@ -219,3 +219,19 @@ RETURNS INT LANGUAGE sql STABLE AS $$
     WHERE created_at > now() - make_interval(secs => p_window_seconds)
       AND (ip_hash = p_ip OR session_id = p_session);
 $$;
+
+-- ===========================================================================
+-- Email subscribers (optional capture) + training-ready feedback columns
+-- ===========================================================================
+CREATE TABLE IF NOT EXISTS subscribers (
+    id            BIGSERIAL PRIMARY KEY,
+    email         TEXT UNIQUE NOT NULL,
+    wants_updates BOOLEAN DEFAULT FALSE,
+    source        TEXT,
+    created_at    TIMESTAMPTZ DEFAULT now()
+);
+
+-- Store the full exchange with each rating so feedback is usable as training /
+-- preference data later.
+ALTER TABLE feedback ADD COLUMN IF NOT EXISTS answer  TEXT;
+ALTER TABLE feedback ADD COLUMN IF NOT EXISTS sources JSONB;

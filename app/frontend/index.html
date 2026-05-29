@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Naija-Petro · Petroleum Engineering Assistant</title>
-<!-- build: ui-3 (world-class) -->
+<!-- build: ui-4 (email capture + feedback notes) -->
 <meta name="description" content="Nigeria-aware petroleum engineering AI with verifiable, cited sources." />
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛢️</text></svg>" />
 <script>tailwind = window.tailwind || {}; </script>
@@ -178,6 +178,14 @@
                 <button @click="rate(m,-1)" :class="m.feedback===-1?'text-flare':'opacity-50 hover:opacity-100'" class="px-1.5 py-1 rounded-lg" title="Not helpful">👎</button>
               </div>
 
+              <!-- optional feedback note (training signal) -->
+              <div x-show="m.showComment" class="mt-2 flex gap-2 max-w-xl">
+                <input x-model="m.comment" @keydown.enter="sendComment(m)" placeholder="Optional: what was good or wrong? (helps improve the model)"
+                  class="flex-1 text-xs dark:bg-[#0a130f] bg-white border dark:border-[#1f2d27] border-[#e3ece7] rounded-lg px-2.5 py-1.5 outline-none focus:border-naija">
+                <button @click="sendComment(m)" class="text-xs px-3 rounded-lg bg-naija/80 hover:bg-naija text-white">Send</button>
+              </div>
+              <div x-show="m.commentSent" class="mt-1.5 text-xs text-naija-soft">Thanks, this helps improve the model.</div>
+
               <!-- follow-ups -->
               <div x-show="m.followups&&m.followups.length" class="mt-3 flex flex-wrap gap-1.5">
                 <template x-for="q in m.followups" :key="q">
@@ -210,15 +218,45 @@
         <a href="https://github.com/Mystique1337/naija-petro" target="_blank" rel="noopener" class="underline hover:text-naija-soft ml-1">GitHub</a> ·
         <a href="https://huggingface.co/Shinzmann" target="_blank" rel="noopener" class="underline hover:text-naija-soft">Hugging Face</a>
       </span>
-      <span class="hidden sm:inline">Qwen3-8B + dynamic RAG · verify before operational use</span>
+      <span class="flex items-center gap-2">
+        <button @click="openEmail()" class="underline hover:text-naija-soft">Get updates</button>
+        <span class="hidden sm:inline opacity-70">· Qwen3-8B + dynamic RAG · verify before operational use</span>
+      </span>
     </div>
   </footer>
+
+  <!-- Email capture modal (optional, shown once) -->
+  <div x-show="emailModal" x-cloak class="fixed inset-0 z-50 grid place-items-center bg-black/50 backdrop-blur-sm p-4" @click.self="dismissEmail()">
+    <div class="w-full max-w-sm rounded-2xl border dark:border-[#1f2d27] border-[#e3ece7] dark:bg-[#0f1714] bg-white p-5 shadow-2xl">
+      <div class="text-2xl mb-1">🛢️</div>
+      <h2 class="text-lg font-bold mb-1">Stay in the loop</h2>
+      <p class="text-sm opacity-70 mb-4">Get notified about new features and improvements to Naija-Petro. No spam, unsubscribe anytime.</p>
+      <template x-if="!subscribed">
+        <div>
+          <input x-model="email" type="email" placeholder="you@example.com" @keydown.enter="subscribe()"
+            class="w-full dark:bg-[#0a130f] bg-white border dark:border-[#1f2d27] border-[#e3ece7] focus:border-naija rounded-xl px-3 py-2.5 text-sm outline-none mb-3">
+          <label class="flex items-center gap-2 text-xs opacity-80 mb-4 cursor-pointer select-none">
+            <input type="checkbox" x-model="wantsUpdates" class="accent-naija w-4 h-4"> Send me occasional product updates
+          </label>
+          <div class="text-xs text-red-400 mb-2" x-show="emailError" x-text="emailError"></div>
+          <div class="flex gap-2">
+            <button @click="subscribe()" class="flex-1 bg-naija hover:bg-naija-soft text-white text-sm font-semibold rounded-xl py-2.5 transition">Notify me</button>
+            <button @click="dismissEmail()" class="px-3 text-sm opacity-60 hover:opacity-100">No thanks</button>
+          </div>
+        </div>
+      </template>
+      <template x-if="subscribed">
+        <div class="text-center py-3"><div class="text-2xl mb-1">✓</div><p class="text-sm">Thanks, you are on the list.</p></div>
+      </template>
+    </div>
+  </div>
 </div>
 
 <script>
 function app(){
   return {
     messages: [], input:'', busy:false, dark:true, reasoningOn:false,
+    emailModal:false, email:'', wantsUpdates:true, subscribed:false, emailError:'',
     sessionId: uid(), userId: persistUid(),
     kb: { documents:0, chunks:0 },
     examples: [
@@ -271,7 +309,7 @@ function app(){
       this.busy=true;
       this.messages.push({ role:'user', content:q });
       const history = this.messages.filter(x=>x.role==='user'||x.role==='assistant').slice(-7,-1).map(x=>({role:x.role, content:(x.answer||x.content||'')}));
-      this.messages.push({ role:'assistant', raw:'', reasoning:'', answer:'', html:'', sources:[], meta:null, streaming:true, stage:'starting', thinking:false, showReason:false, error:null, followups:[], feedback:0, traceId:null, query:q });
+      this.messages.push({ role:'assistant', raw:'', reasoning:'', answer:'', html:'', sources:[], meta:null, streaming:true, stage:'starting', thinking:false, showReason:false, error:null, followups:[], feedback:0, traceId:null, query:q, showComment:false, comment:'', commentSent:false });
       const m = this.messages[this.messages.length-1];
       this.scrollDown();
       try{
@@ -290,7 +328,7 @@ function app(){
             else if(evt.type==='meta'){ m.sources=evt.sources||[]; m.meta=evt; m.traceId=evt.trace_id||null; if(evt.kb_added) this.refreshKb(); }
             else if(evt.type==='token'){ m.raw+=evt.t; const p=this.splitThink(m.raw); m.reasoning=p.reasoning; m.thinking=p.thinking; m.answer=p.answer; m.html=this.render(m.answer, m.sources); this.scrollDown(); }
             else if(evt.type==='followups'){ m.followups=evt.items||[]; }
-            else if(evt.type==='done'){ m.streaming=false; m.thinking=false; m.html=this.render(m.answer,m.sources); this.typeset(); }
+            else if(evt.type==='done'){ m.streaming=false; m.thinking=false; m.html=this.render(m.answer,m.sources); this.typeset(); this.maybeAskEmail(); }
             else if(evt.type==='error'){ m.error=evt.message; m.streaming=false; m.thinking=false; }
           }
         }
@@ -298,10 +336,28 @@ function app(){
       finally{ m.streaming=false; m.thinking=false; this.busy=false; this.refreshKb(); this.typeset(); this.scrollDown(); this.$nextTick(()=>this.$refs.ta&&this.$refs.ta.focus()); }
     },
 
+    fbPayload(m){ return { session_id:this.sessionId, user_id:this.userId, query:m.query, rating:m.feedback, trace_id:m.traceId, answer:m.answer, sources:m.sources, comment:m.comment||'' }; },
     async rate(m, val){
       m.feedback = m.feedback===val ? 0 : val;
-      try{ await fetch('/feedback', { method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ session_id:this.sessionId, user_id:this.userId, query:m.query, rating:m.feedback, trace_id:m.traceId }) }); }catch(e){}
+      m.showComment = m.feedback!==0 && !m.commentSent;
+      try{ await fetch('/feedback', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(this.fbPayload(m)) }); }catch(e){}
+    },
+    async sendComment(m){
+      m.commentSent=true; m.showComment=false;
+      try{ await fetch('/feedback', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(this.fbPayload(m)) }); }catch(e){}
+    },
+    maybeAskEmail(){ if(!localStorage.getItem('np_sub')){ setTimeout(()=>{ if(!localStorage.getItem('np_sub')) this.emailModal=true; }, 1500); } },
+    openEmail(){ this.emailError=''; this.emailModal=true; },
+    dismissEmail(){ this.emailModal=false; localStorage.setItem('np_sub','dismissed'); },
+    async subscribe(){
+      const e=(this.email||'').trim();
+      if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)){ this.emailError='Please enter a valid email.'; return; }
+      this.emailError='';
+      try{
+        const r=await fetch('/subscribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:e, wants_updates:this.wantsUpdates})});
+        if(r.ok){ this.subscribed=true; localStorage.setItem('np_sub','1'); setTimeout(()=>{ this.emailModal=false; }, 1500); }
+        else { const d=await r.json().catch(()=>({})); this.emailError=d.error||'Could not save right now.'; }
+      }catch(err){ this.emailError='Network error, please try again.'; }
     },
     copy(text, ev){ navigator.clipboard.writeText(text||'').then(()=>{ if(ev&&ev.target){ const t=ev.target.textContent; ev.target.textContent='✓ Copied'; setTimeout(()=>ev.target.textContent=t,1200); } }); },
     exportMd(m){ const blob=new Blob([m.answer||''],{type:'text/markdown'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='naija-petro-answer.md'; a.click(); URL.revokeObjectURL(a.href); },

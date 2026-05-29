@@ -178,10 +178,24 @@ async def log_usage(e: dict) -> None:
 
 
 async def log_feedback(f: dict) -> None:
+    import json
+
     pool = await get_pool()
+    srcs = f.get("sources")
     await pool.execute(
-        """INSERT INTO feedback (session_id, user_id, query, rating, trace_id, comment)
-           VALUES ($1,$2,$3,$4,$5,$6)""",
+        """INSERT INTO feedback (session_id, user_id, query, rating, trace_id, comment, answer, sources)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)""",
         f.get("session_id"), f.get("user_id"), f.get("query"),
         f.get("rating"), f.get("trace_id"), f.get("comment"),
+        f.get("answer"), json.dumps(srcs) if srcs is not None else None,
+    )
+
+
+async def subscribe(email: str, wants_updates: bool = False, source: str | None = None) -> None:
+    pool = await get_pool()
+    await pool.execute(
+        """INSERT INTO subscribers (email, wants_updates, source)
+           VALUES ($1,$2,$3)
+           ON CONFLICT (email) DO UPDATE SET wants_updates = EXCLUDED.wants_updates""",
+        email, wants_updates, source,
     )
