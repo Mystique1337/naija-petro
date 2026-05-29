@@ -7,26 +7,29 @@ well as a full self-hosted Supabase.
 from __future__ import annotations
 
 import os
-from urllib.parse import urlparse
 
 from app.config import settings
 
 _pool: "asyncpg.Pool | None" = None
 
 
-def _ssl_for(url: str):
-    """Railway's public proxy needs TLS; internal/localhost does not."""
+def _ssl_modes() -> list:
+    """Ordered SSL options to try, mirroring libpq sslmode=prefer.
+
+    `SUPABASE_DB_SSL` forces a single mode (require/disable). Otherwise we try
+    TLS first then fall back to plaintext on an SSL-specific failure — which is
+    what a real Supabase (needs TLS) and a Railway TCP proxy (rejects TLS) each
+    require, without hardcoding host patterns.
+    """
     override = os.environ.get("SUPABASE_DB_SSL", "auto").lower()
     if override in ("0", "false", "disable", "off"):
-        return False
+        return [False]
     if override in ("1", "true", "require", "on"):
-        return True
-    host = (urlparse(url).hostname or "").lower()
-    local = host in ("localhost", "127.0.0.1", "::1") or host.endswith(".internal")
-    return False if local else True
+        return [True]
+    return [True, False]
 
 
-async def _init_conn(conn: asyncpg.Connection) -> None:
+async def _init_conn(conn) -> None:
     from pgvector.asyncpg import register_vector
 
     await register_vector(conn)
@@ -39,14 +42,25 @@ async def get_pool() -> "asyncpg.Pool":
 
         if not settings.supabase_db_url:
             raise RuntimeError("SUPABASE_DB_URL is not set")
-        _pool = await asyncpg.create_pool(
-            dsn=settings.supabase_db_url,
-            ssl=_ssl_for(settings.supabase_db_url),
-            min_size=1,
-            max_size=8,
-            init=_init_conn,
-            command_timeout=30,
-        )
+        last_err = None
+        for ssl_opt in _ssl_modes():
+            try:
+                _pool = await asyncpg.create_pool(
+                    dsn=settings.supabase_db_url,
+                    ssl=ssl_opt,
+                    min_size=1,
+                    max_size=8,
+                    init=_init_conn,
+                    command_timeout=30,
+                )
+                break
+            except Exception as e:  # fall back to plaintext only on SSL errors
+                last_err = e
+                if "ssl" in str(e).lower():
+                    continue
+                raise
+        if _pool is None:
+            raise last_err
     return _pool
 
 
