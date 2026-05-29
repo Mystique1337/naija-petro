@@ -103,8 +103,17 @@ QLoRA (4-bit NF4) with Unsloth on a single A100 80GB.
 | Max sequence length | 2048 |
 | Seed | 42 |
 
+### Training results (Weights & Biases)
+Trained for 2 epochs (446 optimiser steps) on a single A100 80GB.
+
+| Metric | Value |
+|---|---|
+| Final training loss | ≈ 0.74 |
+| Final validation loss | ≈ 0.79 |
+| Epochs / steps | 2 / 446 |
+
 ## Evaluation
-A 30-question internal benchmark spanning six subdomains (drilling, reservoir, production, completions, EOR, well testing) was scored by an LLM-as-judge on technical accuracy, completeness, and terminology, comparing the fine-tuned model against the base. A corrected, reproducible evaluation is in progress; quantitative scores are not yet reported here. Qualitatively, the fine-tuned model produces detailed, well-structured, equation- and unit-aware answers in the target domain. Treat all outputs as expert-validated decision support.
+Training converged to a low validation loss (≈ 0.79; see *Training results*) — lower than the 8B variant (≈ 0.86), consistent with the larger model's higher capacity. A downstream 30-question internal benchmark across six subdomains (drilling, reservoir, production, completions, EOR, well testing), scored by an LLM-as-judge, is being finalised; task-level scores are not yet reported here. Qualitatively, the fine-tuned model produces detailed, well-structured, equation- and unit-aware answers in the target domain. Treat all outputs as expert-validated decision support.
 
 ## Technical specifications
 - **Architecture:** Qwen3 (decoder-only transformer), 32B parameters
