@@ -9,11 +9,9 @@ from __future__ import annotations
 import os
 from urllib.parse import urlparse
 
-import asyncpg
-
 from app.config import settings
 
-_pool: asyncpg.Pool | None = None
+_pool: "asyncpg.Pool | None" = None
 
 
 def _ssl_for(url: str):
@@ -34,9 +32,11 @@ async def _init_conn(conn: asyncpg.Connection) -> None:
     await register_vector(conn)
 
 
-async def get_pool() -> asyncpg.Pool:
+async def get_pool() -> "asyncpg.Pool":
     global _pool
     if _pool is None:
+        import asyncpg
+
         if not settings.supabase_db_url:
             raise RuntimeError("SUPABASE_DB_URL is not set")
         _pool = await asyncpg.create_pool(
