@@ -78,6 +78,8 @@ pip install -r requirements.txt && modal token new
 bash scripts/setup_modal_secret.sh     # .env -> Modal secret "naija-petro-secrets"
 modal serve modal_app.py               # dev URL (hot reload)
 # modal deploy modal_app.py            # production URL
+# After app/ code changes, if a warm container keeps serving old code during
+# active testing, force fresh containers:  modal app stop naija-petro --yes
 
 # 3) (optional) seed authoritative Nigerian docs once deployed
 python scripts/seed_kb.py

@@ -50,7 +50,8 @@ def create_app(deps: Deps) -> FastAPI:
 
     @api.get("/healthz")
     async def healthz():
-        return {"status": "ok"}
+        from app import __version__
+        return {"status": "ok", "version": __version__}
 
     @api.get("/kb/stats")
     async def kb_stats():
