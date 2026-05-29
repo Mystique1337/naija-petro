@@ -191,6 +191,7 @@ def create_app(deps: Deps) -> FastAPI:
                         enriched=result.enriched,
                         kb_added=result.enrichment.get("new_chunks", 0),
                         reranked=result.reranked,
+                        trace_id=obs.current_trace_id(),
                     )
 
                     # Stream tokens, heartbeating until the first token (LLM may be cold).

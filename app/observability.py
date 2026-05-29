@@ -37,6 +37,15 @@ def get_client():
     return _client
 
 
+def current_trace_id():
+    """The active Langfuse trace id (for linking user feedback), or None."""
+    try:
+        client = get_client()
+        return client.get_current_trace_id() if client else None
+    except Exception:
+        return None
+
+
 class _Span:
     """Fully-guarded wrapper around a Langfuse v4 span."""
 

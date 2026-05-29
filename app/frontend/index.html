@@ -1,136 +1,186 @@
 <!doctype html>
-<html lang="en" class="h-full">
+<html lang="en" class="dark h-full">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Naija-Petro · Petroleum Engineering Assistant</title>
-<!-- build: ui-2 (reactive streaming fix) -->
+<!-- build: ui-3 (world-class) -->
+<meta name="description" content="Nigeria-aware petroleum engineering AI with verifiable, cited sources." />
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛢️</text></svg>" />
+<script>tailwind = window.tailwind || {}; </script>
 <script src="https://cdn.tailwindcss.com"></script>
 <script>
   tailwind.config = {
+    darkMode: 'class',
     theme: { extend: {
       colors: {
-        ink: '#0a0f0d', panel: '#0f1714', edge: '#1d2a25',
-        naija: { DEFAULT: '#16a34a', soft: '#22c55e', deep: '#0c5a32' },
+        naija: { DEFAULT:'#16a34a', soft:'#22c55e', deep:'#0c5a32', glow:'#4ade80' },
         flare: '#f59e0b',
       },
-      fontFamily: { sans: ['Inter','ui-sans-serif','system-ui'] },
+      fontFamily: { sans:['Inter','ui-sans-serif','system-ui'], mono:['JetBrains Mono','ui-monospace','monospace'] },
     }}
   }
 </script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
 <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3/dist/cdn.min.js"></script>
 <style>
-  html,body{background:#070b09;font-family:'Inter',sans-serif}
-  .prose-petro{line-height:1.65;font-size:.95rem;color:#dbe7e0}
-  .prose-petro h1,.prose-petro h2,.prose-petro h3{color:#fff;font-weight:600;margin:.8em 0 .35em}
-  .prose-petro h2{font-size:1.05rem}.prose-petro h3{font-size:1rem}
-  .prose-petro p{margin:.5em 0}.prose-petro ul,.prose-petro ol{margin:.5em 0 .5em 1.2em;list-style:revert}
-  .prose-petro li{margin:.2em 0}.prose-petro code{background:#11201a;padding:.1em .35em;border-radius:.3em;font-size:.85em}
-  .prose-petro pre{background:#0b1511;border:1px solid #1d2a25;padding:.8em;border-radius:.6em;overflow-x:auto;margin:.6em 0}
-  .prose-petro pre code{background:none;padding:0}.prose-petro table{border-collapse:collapse;margin:.6em 0;width:100%}
-  .prose-petro th,.prose-petro td{border:1px solid #1d2a25;padding:.35em .6em;text-align:left}
-  .prose-petro a{color:#22c55e;text-decoration:underline}
-  .cite{display:inline-flex;align-items:center;justify-content:center;min-width:1.1rem;height:1.1rem;padding:0 .25rem;
-    margin:0 .1rem;font-size:.7rem;font-weight:700;color:#052e16;background:#22c55e;border-radius:.35rem;text-decoration:none;vertical-align:.15em}
-  .dot{animation:blink 1.4s infinite both}.dot:nth-child(2){animation-delay:.2s}.dot:nth-child(3){animation-delay:.4s}
-  @keyframes blink{0%,80%,100%{opacity:.2}40%{opacity:1}}
-  ::-webkit-scrollbar{width:9px;height:9px}::-webkit-scrollbar-thumb{background:#1d2a25;border-radius:6px}
-  [x-cloak]{display:none!important}
+  :root{ color-scheme: dark; }
+  html.dark body{ background:radial-gradient(1200px 600px at 50% -10%, #0c1813 0%, #060a08 60%); color:#dbe7e0; }
+  html:not(.dark) body{ background:radial-gradient(1200px 600px at 50% -10%, #f0fdf4 0%, #f7faf8 60%); color:#0f1b15; }
+  body{ font-family:'Inter',sans-serif; }
+  .panel-d{ background:#0f1714; border-color:#1f2d27; }
+  html:not(.dark) .panel-l{ background:#ffffff; border-color:#e3ece7; }
+  .prose-petro{ line-height:1.7; font-size:.95rem; }
+  .prose-petro h1,.prose-petro h2,.prose-petro h3{ font-weight:700; margin:.9em 0 .4em; line-height:1.3; }
+  .prose-petro h2{ font-size:1.1rem; } .prose-petro h3{ font-size:1rem; }
+  .prose-petro p{ margin:.55em 0; } .prose-petro ul,.prose-petro ol{ margin:.5em 0 .5em 1.25em; list-style:revert; }
+  .prose-petro li{ margin:.25em 0; } .prose-petro a{ color:#22c55e; text-decoration:underline; }
+  .prose-petro code{ background:rgba(34,197,94,.12); padding:.1em .35em; border-radius:.35em; font-size:.85em; font-family:'JetBrains Mono',monospace; }
+  .prose-petro pre{ background:#0a130f; border:1px solid #1f2d27; padding:.85em; border-radius:.7em; overflow-x:auto; margin:.7em 0; }
+  html:not(.dark) .prose-petro pre{ background:#0c130f; color:#e6f2ec; }
+  .prose-petro pre code{ background:none; padding:0; }
+  .prose-petro table{ border-collapse:collapse; margin:.7em 0; width:100%; font-size:.9em; }
+  .prose-petro th,.prose-petro td{ border:1px solid #25342d; padding:.4em .65em; text-align:left; }
+  html:not(.dark) .prose-petro th, html:not(.dark) .prose-petro td{ border-color:#dbe7e0; }
+  .prose-petro th{ background:rgba(34,197,94,.08); }
+  .cite{ display:inline-flex; align-items:center; justify-content:center; min-width:1.15rem; height:1.15rem; padding:0 .3rem;
+    margin:0 .12rem; font-size:.7rem; font-weight:700; color:#04240f; background:#22c55e; border-radius:.4rem; text-decoration:none; vertical-align:.12em; }
+  .cite:hover{ background:#4ade80; }
+  .dot{ animation:blink 1.3s infinite both } .dot:nth-child(2){ animation-delay:.18s } .dot:nth-child(3){ animation-delay:.36s }
+  @keyframes blink{ 0%,80%,100%{opacity:.2} 40%{opacity:1} }
+  .shimmer{ background:linear-gradient(90deg,rgba(34,197,94,.15),rgba(34,197,94,.45),rgba(34,197,94,.15)); background-size:200% 100%; animation:sh 1.4s linear infinite; }
+  @keyframes sh{ to{ background-position:-200% 0 } }
+  ::-webkit-scrollbar{ width:9px;height:9px } ::-webkit-scrollbar-thumb{ background:#22311f; border-radius:6px }
+  [x-cloak]{ display:none!important }
+  .reason{ font-family:'JetBrains Mono',monospace; font-size:.8rem; line-height:1.6; white-space:pre-wrap; color:#9fb3a8; }
 </style>
 </head>
-<body class="h-full text-slate-200">
-<div x-data="chat()" x-init="init()" class="flex flex-col h-screen max-w-5xl mx-auto">
+<body class="h-full">
+<div x-data="app()" x-init="init()" x-cloak class="flex flex-col h-screen max-w-4xl mx-auto">
 
   <!-- Header -->
-  <header class="flex items-center gap-3 px-5 py-3 border-b border-edge bg-panel/70 backdrop-blur">
-    <div class="text-2xl">🛢️</div>
+  <header class="flex items-center gap-3 px-4 sm:px-6 py-3 border-b dark:border-[#1f2d27] border-[#e3ece7] sticky top-0 z-10 backdrop-blur bg-white/60 dark:bg-[#0a0f0d]/70">
+    <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-naija to-naija-deep grid place-items-center text-lg shadow-lg shadow-naija/20">🛢️</div>
     <div class="leading-tight">
-      <div class="font-semibold text-white">Naija-Petro</div>
-      <div class="text-xs text-slate-400">Petroleum Engineering Assistant · Nigeria-aware RAG</div>
+      <div class="font-bold tracking-tight">Naija-Petro</div>
+      <div class="text-[11px] text-naija-soft/90 font-medium">Nigeria-aware Petroleum Engineering AI</div>
     </div>
-    <div class="ml-auto flex items-center gap-3 text-xs">
-      <span class="flex items-center gap-1.5 text-slate-400">
-        <span class="w-2 h-2 rounded-full bg-naija-soft animate-pulse"></span> live
+    <div class="ml-auto flex items-center gap-2 text-xs">
+      <span class="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full border dark:border-[#1f2d27] border-[#e3ece7]" :title="`${kb.documents} documents, ${kb.chunks} chunks`">
+        <span class="w-1.5 h-1.5 rounded-full bg-naija-soft animate-pulse"></span>
+        <span x-text="`${kb.chunks} sources`"></span>
       </span>
-      <span class="px-2.5 py-1 rounded-full bg-ink border border-edge text-slate-300"
-            x-text="`📚 ${kb.documents} docs · ${kb.chunks} chunks`"></span>
+      <button @click="reasoningOn=!reasoningOn" :class="reasoningOn ? 'border-naija/60 text-naija-soft' : 'dark:border-[#1f2d27] border-[#e3ece7] opacity-60'"
+        class="px-2.5 py-1 rounded-full border transition" title="Toggle the model's reasoning trace">
+        💭 Reasoning <span x-text="reasoningOn?'on':'off'"></span>
+      </button>
+      <button @click="toggleTheme()" class="w-8 h-8 grid place-items-center rounded-full border dark:border-[#1f2d27] border-[#e3ece7]" title="Toggle theme">
+        <span x-show="dark">☀️</span><span x-show="!dark">🌙</span>
+      </button>
     </div>
   </header>
 
   <!-- Messages -->
-  <main x-ref="scroll" class="flex-1 overflow-y-auto px-4 py-6 space-y-6">
+  <main x-ref="scroll" class="flex-1 overflow-y-auto px-4 sm:px-6 py-6 space-y-7">
 
-    <!-- Empty / welcome -->
-    <template x-if="messages.length === 0">
-      <div class="max-w-2xl mx-auto text-center mt-6">
-        <div class="text-4xl mb-3">🛢️</div>
-        <h1 class="text-xl font-semibold text-white mb-1">Ask about petroleum engineering — grounded in Nigerian sources</h1>
-        <p class="text-sm text-slate-400 mb-6">Answers cite verifiable sources (NUPRC, NMDPRA, NNPC, NEITI, the PIA 2021). The knowledge base grows with every question.</p>
-        <div class="grid sm:grid-cols-2 gap-2 text-left">
+    <template x-if="messages.length===0">
+      <div class="max-w-2xl mx-auto text-center mt-4 sm:mt-10">
+        <div class="text-5xl mb-4">🛢️</div>
+        <h1 class="text-2xl font-extrabold tracking-tight mb-2">Petroleum engineering, grounded in Nigerian sources</h1>
+        <p class="text-sm opacity-70 mb-7 max-w-xl mx-auto">Ask anything across drilling, reservoir, production, completions, EOR, and Nigerian regulation. Every answer cites verifiable sources (NUPRC, NMDPRA, NNPC, NEITI, the PIA 2021), and the knowledge base grows with each question.</p>
+        <div class="grid sm:grid-cols-2 gap-2.5 text-left">
           <template x-for="ex in examples" :key="ex">
-            <button @click="send(ex)"
-              class="text-sm px-4 py-3 rounded-xl bg-panel border border-edge hover:border-naija hover:bg-edge/40 transition text-slate-300"
-              x-text="ex"></button>
+            <button @click="send(ex)" class="group text-sm px-4 py-3 rounded-xl border dark:border-[#1f2d27] border-[#e3ece7] dark:hover:border-naija hover:border-naija hover:bg-naija/5 transition flex items-start gap-2">
+              <span class="text-naija-soft mt-0.5">→</span><span x-text="ex"></span>
+            </button>
           </template>
         </div>
       </div>
     </template>
 
-    <!-- Conversation -->
-    <template x-for="(m, i) in messages" :key="i">
+    <template x-for="(m,i) in messages" :key="i">
       <div class="max-w-3xl mx-auto w-full">
         <!-- user -->
-        <template x-if="m.role === 'user'">
+        <template x-if="m.role==='user'">
           <div class="flex justify-end">
-            <div class="bg-naija-deep/60 border border-naija/40 rounded-2xl rounded-br-sm px-4 py-2.5 text-sm text-white max-w-[85%]" x-text="m.content"></div>
+            <div class="bg-naija-deep/70 border border-naija/30 rounded-2xl rounded-br-md px-4 py-2.5 text-sm text-white max-w-[85%] whitespace-pre-wrap" x-text="m.content"></div>
           </div>
         </template>
         <!-- assistant -->
-        <template x-if="m.role === 'assistant'">
+        <template x-if="m.role==='assistant'">
           <div class="flex gap-3">
-            <div class="shrink-0 w-8 h-8 rounded-lg bg-naija-deep grid place-items-center text-sm">🛢️</div>
+            <div class="shrink-0 w-8 h-8 rounded-lg bg-gradient-to-br from-naija to-naija-deep grid place-items-center text-sm mt-0.5">🛢️</div>
             <div class="min-w-0 flex-1">
+
+              <!-- live status -->
+              <div x-show="m.streaming && !m.answer" class="flex items-center gap-2 text-sm text-naija-soft mb-2">
+                <span class="flex gap-1 text-lg leading-none"><span class="dot">·</span><span class="dot">·</span><span class="dot">·</span></span>
+                <span x-text="stageLabel(m.stage)"></span>
+              </div>
+
+              <!-- reasoning trace -->
+              <template x-if="m.reasoning">
+                <div class="mb-2.5 rounded-xl border dark:border-[#1f2d27] border-[#e3ece7] overflow-hidden">
+                  <button @click="m.showReason=!m.showReason" class="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium dark:bg-[#0c130f] bg-[#f3f8f5]">
+                    <span x-show="m.thinking" class="w-2 h-2 rounded-full shimmer"></span>
+                    <span>💭 Reasoning</span>
+                    <span class="opacity-50" x-text="m.thinking ? '(thinking…)' : (m.showReason?'(hide)':'(show)')"></span>
+                    <span class="ml-auto opacity-50" x-text="m.showReason||m.thinking?'▲':'▼'"></span>
+                  </button>
+                  <div x-show="m.showReason || m.thinking" class="reason px-3 py-2.5 border-t dark:border-[#1f2d27] border-[#e3ece7] max-h-72 overflow-y-auto" x-text="m.reasoning"></div>
+                </div>
+              </template>
+
               <!-- status chips -->
               <div class="flex flex-wrap gap-1.5 mb-2" x-show="m.meta">
-                <span class="text-[11px] px-2 py-0.5 rounded-full bg-ink border border-edge text-slate-400"
-                      x-show="m.sources && m.sources.length"
-                      x-text="`grounded in ${m.sources.length} source${m.sources.length>1?'s':''}`"></span>
-                <span class="text-[11px] px-2 py-0.5 rounded-full bg-ink border border-edge text-slate-400"
-                      x-show="m.meta && m.meta.coverage !== undefined"
-                      x-text="`coverage ${Math.round((m.meta.coverage||0)*100)}%`"></span>
-                <span class="text-[11px] px-2 py-0.5 rounded-full bg-flare/15 border border-flare/40 text-flare"
-                      x-show="m.meta && m.meta.kb_added > 0"
-                      x-text="`🌱 knowledge base grew +${m.meta.kb_added}`"></span>
-                <span class="text-[11px] px-2 py-0.5 rounded-full bg-ink border border-edge text-slate-500"
-                      x-show="m.meta && m.meta.reranked">reranked</span>
+                <span class="text-[11px] px-2 py-0.5 rounded-full border dark:border-[#1f2d27] border-[#e3ece7] opacity-80" x-show="m.sources&&m.sources.length" x-text="`grounded in ${m.sources.length} source${m.sources.length>1?'s':''}`"></span>
+                <span class="text-[11px] px-2 py-0.5 rounded-full border dark:border-[#1f2d27] border-[#e3ece7] opacity-80" x-show="m.meta&&m.meta.coverage!==undefined" x-text="`coverage ${Math.round((m.meta.coverage||0)*100)}%`"></span>
+                <span class="text-[11px] px-2 py-0.5 rounded-full bg-flare/15 border border-flare/40 text-flare" x-show="m.meta&&m.meta.kb_added>0" x-text="`🌱 knowledge base grew +${m.meta.kb_added}`"></span>
+                <span class="text-[11px] px-2 py-0.5 rounded-full border dark:border-[#1f2d27] border-[#e3ece7] opacity-50" x-show="m.meta&&m.meta.reranked">reranked</span>
               </div>
-              <!-- thinking dots -->
-              <div x-show="m.streaming && !m.content" class="flex gap-1 py-2 text-naija-soft text-2xl leading-none">
-                <span class="dot">·</span><span class="dot">·</span><span class="dot">·</span>
-              </div>
+
               <!-- answer -->
               <div class="prose-petro" x-html="m.html"></div>
+
               <!-- sources -->
-              <div x-show="m.sources && m.sources.length" class="mt-3 pt-3 border-t border-edge">
-                <div class="text-[11px] uppercase tracking-wide text-slate-500 mb-1.5">Sources</div>
+              <div x-show="m.sources&&m.sources.length" class="mt-3 pt-3 border-t dark:border-[#1f2d27] border-[#e3ece7]">
+                <div class="text-[11px] uppercase tracking-wide opacity-50 mb-1.5">Sources</div>
                 <div class="space-y-1">
                   <template x-for="s in m.sources" :key="s.n">
-                    <a :href="s.url" target="_blank" rel="noopener"
-                       class="flex items-start gap-2 text-xs text-slate-300 hover:text-naija-soft group">
+                    <a :href="s.url" target="_blank" rel="noopener" class="flex items-center gap-2 text-xs opacity-90 hover:opacity-100 hover:text-naija-soft group">
                       <span class="cite shrink-0" x-text="s.n"></span>
+                      <img :src="`https://www.google.com/s2/favicons?domain=${s.domain}&sz=32`" class="w-3.5 h-3.5 rounded-sm shrink-0" loading="lazy" onerror="this.style.display='none'">
                       <span class="truncate group-hover:underline" x-text="s.title"></span>
                       <span class="ml-auto shrink-0 px-1.5 rounded text-[10px] border"
-                            :class="s.tier===1 ? 'border-naija/50 text-naija-soft' : s.tier===2 ? 'border-flare/40 text-flare' : 'border-edge text-slate-500'"
-                            x-text="s.tier===1?'official':s.tier===2?'reference':'news'"></span>
+                        :class="s.tier===1?'border-naija/50 text-naija-soft':s.tier===2?'border-flare/40 text-flare':'dark:border-[#1f2d27] border-[#e3ece7] opacity-60'"
+                        x-text="s.tier===1?'official':s.tier===2?'reference':'news'"></span>
                     </a>
                   </template>
                 </div>
               </div>
+
+              <!-- actions -->
+              <div x-show="!m.streaming && m.answer" class="flex items-center gap-1 mt-2.5 text-xs">
+                <button @click="copy(m.answer,$event)" class="px-2 py-1 rounded-lg dark:hover:bg-[#16221c] hover:bg-[#eef5f1] opacity-70 hover:opacity-100" title="Copy">📋 Copy</button>
+                <button @click="exportMd(m)" class="px-2 py-1 rounded-lg dark:hover:bg-[#16221c] hover:bg-[#eef5f1] opacity-70 hover:opacity-100" title="Export markdown">⬇︎ Export</button>
+                <span class="mx-1 opacity-30">·</span>
+                <button @click="rate(m,1)" :class="m.feedback===1?'text-naija-soft':'opacity-50 hover:opacity-100'" class="px-1.5 py-1 rounded-lg" title="Helpful">👍</button>
+                <button @click="rate(m,-1)" :class="m.feedback===-1?'text-flare':'opacity-50 hover:opacity-100'" class="px-1.5 py-1 rounded-lg" title="Not helpful">👎</button>
+              </div>
+
+              <!-- follow-ups -->
+              <div x-show="m.followups&&m.followups.length" class="mt-3 flex flex-wrap gap-1.5">
+                <template x-for="q in m.followups" :key="q">
+                  <button @click="send(q)" class="text-xs px-3 py-1.5 rounded-full border dark:border-[#1f2d27] border-[#e3ece7] dark:hover:border-naija hover:border-naija hover:text-naija-soft transition" x-text="q"></button>
+                </template>
+              </div>
+
               <div x-show="m.error" class="text-sm text-red-400 mt-1" x-text="m.error"></div>
             </div>
           </div>
@@ -140,90 +190,121 @@
   </main>
 
   <!-- Composer -->
-  <footer class="border-t border-edge bg-panel/70 backdrop-blur px-4 py-3">
+  <footer class="border-t dark:border-[#1f2d27] border-[#e3ece7] backdrop-blur bg-white/60 dark:bg-[#0a0f0d]/70 px-4 sm:px-6 py-3">
     <div class="max-w-3xl mx-auto flex items-end gap-2">
       <textarea x-ref="ta" x-model="input" rows="1" :disabled="busy"
-        @keydown.enter.prevent="!$event.shiftKey && send()"
-        @input="autosize($event.target)"
+        @keydown.enter.prevent="!$event.shiftKey && send()" @input="autosize($event.target)"
         placeholder="Ask about drilling, reservoir, the PIA 2021, NUPRC regulations…"
-        class="flex-1 resize-none max-h-40 bg-ink border border-edge focus:border-naija rounded-xl px-4 py-3 text-sm text-white placeholder:text-slate-500 outline-none"></textarea>
-      <button @click="send()" :disabled="busy || !input.trim()"
-        class="shrink-0 h-11 px-4 rounded-xl bg-naija hover:bg-naija-soft disabled:opacity-40 disabled:cursor-not-allowed text-white font-medium text-sm transition">
+        class="flex-1 resize-none max-h-40 dark:bg-[#0a130f] bg-white border dark:border-[#1f2d27] border-[#e3ece7] focus:border-naija rounded-xl px-4 py-3 text-sm outline-none placeholder:opacity-50"></textarea>
+      <button @click="send()" :disabled="busy||!input.trim()"
+        class="shrink-0 h-11 px-5 rounded-xl bg-naija hover:bg-naija-soft disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold text-sm transition shadow-lg shadow-naija/20">
         <span x-show="!busy">Send</span><span x-show="busy">…</span>
       </button>
     </div>
-    <p class="max-w-3xl mx-auto text-[11px] text-slate-600 mt-2">Naija-Petro can be wrong — validate with qualified engineers before operational use.</p>
+    <div class="max-w-3xl mx-auto flex items-center justify-between mt-2 text-[11px] opacity-60">
+      <span>Built by <span class="font-semibold opacity-100">Ashinze Emmanuel</span>
+        <a href="https://github.com/Mystique1337/naija-petro" target="_blank" rel="noopener" class="underline hover:text-naija-soft ml-1">GitHub</a> ·
+        <a href="https://huggingface.co/Shinzmann" target="_blank" rel="noopener" class="underline hover:text-naija-soft">Hugging Face</a>
+      </span>
+      <span class="hidden sm:inline">Qwen3-8B + dynamic RAG · verify before operational use</span>
+    </div>
   </footer>
 </div>
 
 <script>
-function chat(){
+function app(){
   return {
-    messages: [], input: '', busy: false,
-    sessionId: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now())),
-    kb: { documents: 0, chunks: 0 },
+    messages: [], input:'', busy:false, dark:true, reasoningOn:true,
+    sessionId: uid(), userId: persistUid(),
+    kb: { documents:0, chunks:0 },
     examples: [
       "Summarise the upstream fiscal terms under Nigeria's PIA 2021.",
       "What does NUPRC regulate, and how does it differ from NMDPRA?",
-      "Explain the material balance equation for an undersaturated reservoir.",
-      "What are the screening criteria for CO₂ EOR in Niger Delta reservoirs?",
+      "Derive the material balance equation for an undersaturated reservoir.",
+      "Screening criteria for CO2 EOR in Niger Delta reservoirs?",
     ],
-    init(){ this.refreshKb(); marked.setOptions({breaks:true, gfm:true}); },
+    init(){
+      this.dark = (localStorage.getItem('np_theme')||'dark')==='dark';
+      document.documentElement.classList.toggle('dark', this.dark);
+      marked.setOptions({ breaks:true, gfm:true });
+      this.refreshKb();
+    },
+    toggleTheme(){ this.dark=!this.dark; document.documentElement.classList.toggle('dark', this.dark); localStorage.setItem('np_theme', this.dark?'dark':'light'); },
     autosize(el){ el.style.height='auto'; el.style.height=Math.min(el.scrollHeight,160)+'px'; },
-    scrollDown(){ this.$nextTick(()=>{ this.$refs.scroll.scrollTop = this.$refs.scroll.scrollHeight; }); },
+    scrollDown(){ this.$nextTick(()=>{ this.$refs.scroll.scrollTop=this.$refs.scroll.scrollHeight; }); },
+    stageLabel(s){ return ({starting:'Connecting', searching:'Searching Nigerian sources', retrieving:'Searching sources', reasoning:'Warming the model', generating:'Generating'})[s] || 'Working'; },
+
+    splitThink(raw){
+      const o = raw.indexOf('<think>');
+      if(o===-1) return { reasoning:'', answer:raw, thinking:false };
+      const c = raw.indexOf('</think>');
+      if(c===-1) return { reasoning: raw.slice(o+7), answer:'', thinking:true };
+      return { reasoning: raw.slice(o+7,c).trim(), answer: raw.slice(c+8).replace(/^\s+/,''), thinking:false };
+    },
     render(text, sources){
-      let html = marked.parse(text||'');
-      // Turn [n] into clickable citation chips linking to the matching source.
+      const math=[];
+      const stash = (m)=>{ math.push(m); return `@@M${math.length-1}@@`; };
+      text = (text||'')
+        .replace(/\$\$([\s\S]+?)\$\$/g, stash)
+        .replace(/\\\[([\s\S]+?)\\\]/g, stash)
+        .replace(/\\\(([\s\S]+?)\\\)/g, stash);
+      let html = marked.parse(text);
+      html = html.replace(/@@M(\d+)@@/g, (_,i)=>math[i]);
       if(sources && sources.length){
-        const esc = u => String(u||'').replace(/"/g,'%22');
-        const byN = Object.fromEntries(sources.map(s=>[s.n, esc(s.url)]));
+        const byN = Object.fromEntries(sources.map(s=>[s.n, String(s.url||'').replace(/"/g,'%22')]));
         html = html.replace(/\[(\d{1,2})\]/g, (m,n)=> byN[n] ? `<a class="cite" href="${byN[n]}" target="_blank" rel="noopener">${n}</a>` : m);
       }
-      // Sanitize the final HTML (drops unsafe schemes/markup), keeping target attrs.
-      return DOMPurify.sanitize(html, { ADD_ATTR: ['target'] });
+      return DOMPurify.sanitize(html, { ADD_ATTR:['target'] });
     },
-    async refreshKb(){
-      try{ const r = await fetch('/kb/stats'); if(r.ok){ const d = await r.json(); if(d && d.documents!=null){ this.kb = d; } } }catch(e){}
-    },
+    typeset(){ this.$nextTick(()=>{ try{ if(window.renderMathInElement) renderMathInElement(this.$refs.scroll, {
+      delimiters:[{left:'\\[',right:'\\]',display:true},{left:'$$',right:'$$',display:true},{left:'\\(',right:'\\)',display:false}], throwOnError:false }); }catch(e){} }); },
+
+    async refreshKb(){ try{ const r=await fetch('/kb/stats'); if(r.ok){ const d=await r.json(); if(d&&d.documents!=null) this.kb=d; } }catch(e){} },
+
     async send(text){
-      const q = (text || this.input).trim();
-      if(!q || this.busy) return;
-      this.input=''; if(this.$refs.ta){ this.$refs.ta.style.height='auto'; }
-      this.busy = true;
+      const q=(text||this.input).trim(); if(!q||this.busy) return;
+      this.input=''; if(this.$refs.ta) this.$refs.ta.style.height='auto';
+      this.busy=true;
       this.messages.push({ role:'user', content:q });
-      const history = this.messages.filter(m=>m.role==='user'||m.role==='assistant')
-        .slice(-7,-1).map(m=>({role:m.role, content:m.content}));
-      this.messages.push({ role:'assistant', content:'', html:'', sources:[], meta:null, streaming:true, error:null });
-      // Use the reactive array element — mutating the raw object would not update the DOM.
-      const m = this.messages[this.messages.length - 1];
+      const history = this.messages.filter(x=>x.role==='user'||x.role==='assistant').slice(-7,-1).map(x=>({role:x.role, content:(x.answer||x.content||'')}));
+      this.messages.push({ role:'assistant', raw:'', reasoning:'', answer:'', html:'', sources:[], meta:null, streaming:true, stage:'starting', thinking:false, showReason:false, error:null, followups:[], feedback:0, traceId:null, query:q });
+      const m = this.messages[this.messages.length-1];
       this.scrollDown();
       try{
-        const resp = await fetch('/chat', {
-          method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ message:q, session_id:this.sessionId, history })
-        });
-        if(!resp.ok || !resp.body) throw new Error('Request failed ('+resp.status+')');
-        const reader = resp.body.getReader(); const dec = new TextDecoder(); let buf='';
+        const resp = await fetch('/chat', { method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ message:q, session_id:this.sessionId, user_id:this.userId, history, reasoning:this.reasoningOn }) });
+        if(!resp.ok){ const t=await resp.text().catch(()=> ''); throw new Error(resp.status===429?'You are sending requests too quickly. Please wait a moment.':('Request failed ('+resp.status+')')); }
+        const reader=resp.body.getReader(); const dec=new TextDecoder(); let buf='';
         while(true){
-          const {value, done} = await reader.read(); if(done) break;
-          buf += dec.decode(value, {stream:true});
-          let idx;
-          while((idx = buf.indexOf('\n\n')) >= 0){
-            const line = buf.slice(0, idx).trim(); buf = buf.slice(idx+2);
+          const {value,done}=await reader.read(); if(done) break;
+          buf+=dec.decode(value,{stream:true}); let idx;
+          while((idx=buf.indexOf('\n\n'))>=0){
+            const line=buf.slice(0,idx).trim(); buf=buf.slice(idx+2);
             if(!line.startsWith('data:')) continue;
-            const evt = JSON.parse(line.slice(5).trim());
-            if(evt.type==='meta'){ m.sources = evt.sources||[]; m.meta = evt; if(evt.kb_added) this.refreshKb(); }
-            else if(evt.type==='token'){ m.content += evt.t; m.html = this.render(m.content, m.sources); this.scrollDown(); }
-            else if(evt.type==='done'){ m.streaming=false; m.html=this.render(m.content, m.sources); }
-            else if(evt.type==='error'){ m.error = evt.message; m.streaming=false; }
+            let evt; try{ evt=JSON.parse(line.slice(5).trim()); }catch(e){ continue; }
+            if(evt.type==='status'){ m.stage=evt.stage; }
+            else if(evt.type==='meta'){ m.sources=evt.sources||[]; m.meta=evt; m.traceId=evt.trace_id||null; if(evt.kb_added) this.refreshKb(); }
+            else if(evt.type==='token'){ m.raw+=evt.t; const p=this.splitThink(m.raw); m.reasoning=p.reasoning; m.thinking=p.thinking; m.answer=p.answer; m.html=this.render(m.answer, m.sources); this.scrollDown(); }
+            else if(evt.type==='followups'){ m.followups=evt.items||[]; }
+            else if(evt.type==='done'){ m.streaming=false; m.thinking=false; m.html=this.render(m.answer,m.sources); this.typeset(); }
+            else if(evt.type==='error'){ m.error=evt.message; m.streaming=false; m.thinking=false; }
           }
         }
-      }catch(e){ m.error = String(e.message||e); }
-      finally{ m.streaming=false; this.busy=false; this.refreshKb(); this.scrollDown();
-        this.$nextTick(()=>this.$refs.ta && this.$refs.ta.focus()); }
+      }catch(e){ m.error=String(e.message||e); }
+      finally{ m.streaming=false; m.thinking=false; this.busy=false; this.refreshKb(); this.typeset(); this.scrollDown(); this.$nextTick(()=>this.$refs.ta&&this.$refs.ta.focus()); }
     },
+
+    async rate(m, val){
+      m.feedback = m.feedback===val ? 0 : val;
+      try{ await fetch('/feedback', { method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ session_id:this.sessionId, user_id:this.userId, query:m.query, rating:m.feedback, trace_id:m.traceId }) }); }catch(e){}
+    },
+    copy(text, ev){ navigator.clipboard.writeText(text||'').then(()=>{ if(ev&&ev.target){ const t=ev.target.textContent; ev.target.textContent='✓ Copied'; setTimeout(()=>ev.target.textContent=t,1200); } }); },
+    exportMd(m){ const blob=new Blob([m.answer||''],{type:'text/markdown'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='naija-petro-answer.md'; a.click(); URL.revokeObjectURL(a.href); },
   }
 }
+function uid(){ return (crypto.randomUUID? crypto.randomUUID(): 's'+Date.now()+Math.random().toString(16).slice(2)); }
+function persistUid(){ let u=localStorage.getItem('np_uid'); if(!u){ u=uid(); localStorage.setItem('np_uid',u); } return u; }
 </script>
 </body>
 </html>
