@@ -86,6 +86,60 @@ def hydrostatic_pressure(mud_weight_ppg: float, tvd_ft: float) -> dict:
             "formula": r"P = 0.052 \times MW(\text{ppg}) \times TVD(\text{ft})", "units": {"pressure_psi": "psi"}}
 
 
+def standing_pb(rs_scf_stb: float, gas_grav: float, api: float, temp_f: float) -> dict:
+    """Standing bubble-point pressure (psia). Rs in scf/STB, gas_grav (air=1), oil API, temp degF."""
+    rs, g, api, t = float(rs_scf_stb), float(gas_grav), float(api), float(temp_f)
+    pb = 18.2 * ((rs / g) ** 0.83 * 10 ** (0.00091 * t - 0.0125 * api) - 1.4)
+    return {"bubble_point_psia": _round(pb),
+            "formula": r"P_b = 18.2\left[(R_s/\gamma_g)^{0.83}\,10^{0.00091T-0.0125\,API} - 1.4\right]",
+            "units": {"bubble_point_psia": "psia"}}
+
+
+def standing_bo(rs_scf_stb: float, gas_grav: float, api: float, temp_f: float) -> dict:
+    """Standing oil formation volume factor Bo (RB/STB) at/below bubble point."""
+    rs, g, api, t = float(rs_scf_stb), float(gas_grav), float(api), float(temp_f)
+    oil_grav = 141.5 / (131.5 + api)
+    bo = 0.9759 + 0.00012 * (rs * (g / oil_grav) ** 0.5 + 1.25 * t) ** 1.2
+    return {"Bo_RB_per_STB": _round(bo), "oil_specific_gravity": _round(oil_grav),
+            "formula": r"B_o = 0.9759 + 0.00012\,[R_s(\gamma_g/\gamma_o)^{0.5} + 1.25T]^{1.2}",
+            "units": {"Bo_RB_per_STB": "RB/STB"}}
+
+
+def gas_fvf(z: float, temp_f: float, pressure_psia: float) -> dict:
+    """Gas formation volume factor Bg (reservoir cf per scf). z=compressibility factor."""
+    z, t, p = float(z), float(temp_f), float(pressure_psia)
+    bg = 0.02827 * z * (t + 460.0) / p
+    return {"Bg_rcf_per_scf": _round(bg), "Bg_rb_per_mscf": _round(bg * 1000 / 5.615),
+            "formula": r"B_g = 0.02827\,zT/P \;(T\ \text{in}\ ^\circ R)", "units": {"Bg_rcf_per_scf": "rcf/scf"}}
+
+
+def productivity_index(q_test: float, pr_psi: float, pwf_test: float, pwf_target: float | None = None) -> dict:
+    """Straight-line (undersaturated) IPR. J = q/(Pr - Pwf)."""
+    q, pr, pwf = float(q_test), float(pr_psi), float(pwf_test)
+    J = q / (pr - pwf) if pr != pwf else 0.0
+    out = {"J_STB_per_day_psi": _round(J), "AOF_at_pwf_0": _round(J * pr),
+           "formula": r"J = q/(\bar P_r - P_{wf});\ q = J(\bar P_r - P_{wf})", "units": {"J_STB_per_day_psi": "STB/d/psi"}}
+    if pwf_target is not None:
+        out["rate_at_pwf_target"] = _round(J * (pr - float(pwf_target)))
+    return out
+
+
+def arps_eur_exponential(qi: float, D_per_year: float, q_abandon: float) -> dict:
+    """Exponential decline EUR to an economic limit rate. qi, q_abandon in same rate units, D per year."""
+    qi, D, qa = float(qi), float(D_per_year), float(q_abandon)
+    eur = (qi - qa) / D if D else 0.0
+    t = math.log(qi / qa) / D if (D and qa) else 0.0
+    return {"EUR": _round(eur), "years_to_limit": _round(t),
+            "formula": r"EUR = (q_i - q_a)/D;\ t = \ln(q_i/q_a)/D", "units": {"EUR": "rate x year", "years_to_limit": "years"}}
+
+
+def recovery_factor(np_stb: float, ooip_stb: float) -> dict:
+    """Recovery factor = cumulative production / original oil in place."""
+    rf = float(np_stb) / float(ooip_stb) if float(ooip_stb) else 0.0
+    return {"recovery_factor": _round(rf), "recovery_percent": _round(rf * 100),
+            "formula": r"RF = N_p/N", "units": {"recovery_percent": "%"}}
+
+
 # name -> (function, human description used in the tool-selection prompt)
 CALCULATORS: dict[str, tuple] = {
     "arps_decline": (arps_decline,
@@ -100,6 +154,18 @@ CALCULATORS: dict[str, tuple] = {
         "Radial oil inflow rate, pseudo-steady-state, field units. args: k_md, h_ft, pr_psi, pwf_psi, mu_cp, bo, re_ft, rw_ft, optional skin."),
     "hydrostatic_pressure": (hydrostatic_pressure,
         "Hydrostatic/mud-column pressure. args: mud_weight_ppg, tvd_ft."),
+    "standing_pb": (standing_pb,
+        "Standing bubble-point pressure. args: rs_scf_stb, gas_grav (air=1), api, temp_f."),
+    "standing_bo": (standing_bo,
+        "Standing oil formation volume factor Bo. args: rs_scf_stb, gas_grav, api, temp_f."),
+    "gas_fvf": (gas_fvf,
+        "Gas formation volume factor Bg. args: z (compressibility factor), temp_f, pressure_psia."),
+    "productivity_index": (productivity_index,
+        "Straight-line (undersaturated) IPR / productivity index. args: q_test, pr_psi, pwf_test, optional pwf_target."),
+    "arps_eur_exponential": (arps_eur_exponential,
+        "Exponential decline EUR to an economic limit. args: qi, D_per_year, q_abandon."),
+    "recovery_factor": (recovery_factor,
+        "Recovery factor. args: np_stb (cumulative), ooip_stb (original oil in place)."),
 }
 
 TOOL_MENU = "\n".join(f"- {name}: {desc}" for name, (_, desc) in CALCULATORS.items())
