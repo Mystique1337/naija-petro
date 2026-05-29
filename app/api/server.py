@@ -6,6 +6,7 @@ module never imports Modal — keeping it cycle-free and unit-testable with a st
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Awaitable, Callable, Optional
@@ -21,7 +22,7 @@ from app.rag import db
 from app.rag.prompts import build_messages
 from app.rag.retriever import retrieve
 
-FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
+FRONTEND_DIR = Path(os.environ.get("FRONTEND_DIR") or (Path(__file__).resolve().parent.parent / "frontend"))
 
 
 @dataclass

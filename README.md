@@ -35,14 +35,16 @@ naija-petro/
 │   ├── 03_eda.ipynb                Exploratory analysis of the 20K dataset
 │   ├── 04_finetune_8b.ipynb        Fine-tune, evaluate & deploy the 8B model
 │   └── 05_finetune_32b.ipynb       Fine-tune, evaluate & deploy the 32B model
-├── app/              Modal-hosted dynamic-RAG assistant
-│   ├── modal_app.py                Modal entrypoint (vLLM serving + ASGI app)
+├── modal_app.py      Modal entrypoint (vLLM serving, encoders, ASGI app, jobs)
+├── app/              Dynamic-RAG assistant
 │   ├── api/                        FastAPI routes (chat, SSE streaming, stats)
 │   ├── rag/                        Embeddings, retrieval, ingestion, sources, prompts
-│   └── frontend/                   Streaming chat UI with a citations panel
+│   ├── frontend/                   Streaming chat UI with a citations panel
+│   ├── config.py                   Env-driven settings + system prompt
+│   └── observability.py            Langfuse tracing (best-effort)
 ├── supabase/         pgvector schema + hybrid-search RPC
 ├── hf_cards/         Source-of-truth Hugging Face model & dataset cards
-├── scripts/          Notebook scrubber, card pusher, KB seeder
+├── scripts/          Notebook scrubber, card pusher, KB seeder, Modal secret setup
 ├── .env.example      All configuration / secrets (copy to .env)
 └── README.md
 ```
@@ -68,14 +70,16 @@ git clone https://github.com/Mystique1337/naija-petro.git
 cd naija-petro
 cp .env.example .env            # fill in your keys
 
-# 1) Provision the vector store (run once against your Supabase)
+# 1) Provision the vector store (run once against your Railway Postgres / Supabase)
 psql "$SUPABASE_DB_URL" -f supabase/schema.sql
 
-# 2) Run the assistant locally against Modal
-pip install modal && modal token new
-modal serve app/modal_app.py    # opens a dev URL
+# 2) Push your .env into a Modal secret, then run the assistant
+pip install -r requirements.txt && modal token new
+bash scripts/setup_modal_secret.sh     # .env -> Modal secret "naija-petro-secrets"
+modal serve modal_app.py               # dev URL (hot reload)
+# modal deploy modal_app.py            # production URL
 
-# 3) (optional) seed authoritative Nigerian docs
+# 3) (optional) seed authoritative Nigerian docs once deployed
 python scripts/seed_kb.py
 ```
 

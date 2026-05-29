@@ -1,0 +1,17 @@
+# Local dev / deploy client. The Modal containers install their own pinned sets
+# (see modal_app.py images); this is for running scripts and `modal` locally.
+modal>=0.64
+python-dotenv>=1.0
+
+# Web + RAG (also installed in the Modal web image)
+fastapi[standard]>=0.115
+asyncpg>=0.29
+pgvector>=0.3
+httpx>=0.27
+trafilatura>=1.12
+pymupdf4llm>=0.0.17
+langfuse>=3.0
+openai>=1.55
+
+# Hugging Face card push (scripts/push_cards.py)
+huggingface_hub>=0.27
