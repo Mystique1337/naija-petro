@@ -230,7 +230,7 @@ async def enrich(query: str) -> dict:
 # --------------------------------------------------------------------------- #
 @app.function(image=web_image, secrets=secrets, scaledown_window=300, timeout=900)
 @modal.concurrent(max_inputs=100)
-@modal.asgi_app(label="naija-petro", custom_domains=["naija-petro.shinzii.tech"])
+@modal.asgi_app(label="naija-petro")
 def fastapi_app():
     from app.api.server import Deps, create_app
 
