@@ -22,11 +22,11 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from app import observability as obs
-from app.config import settings
+from app.config import CONTINUE_INSTRUCTION, STREAM_TRUNCATED, SYSTEM_PROMPT, settings
 from app.rag import db
 from app.rag.prompts import build_messages
 from app.rag.retriever import retrieve
-from app.tools.calculators import CALCULATORS, TOOL_MENU, needs_tools, run_tool
+from app.tools.calculators import CALCULATORS, TOOL_MENU, TOOL_SPECS, needs_tools, run_tool
 
 TOOL_SELECT_SYS = (
     "You pick a calculator for a petroleum-engineering question. Given the list and the "
@@ -80,6 +80,7 @@ class ChatRequest(BaseModel):
     history: Optional[list[dict]] = None
     reasoning: bool = True
     units: str = "field"          # "field" or "si"
+    continuation: bool = False    # continue a previously truncated answer (no new retrieval)
 
 
 class FeedbackRequest(BaseModel):
@@ -124,6 +125,30 @@ _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 def _sse(kind: str, **data) -> str:
     return f"data: {json.dumps({'type': kind, **data})}\n\n"
+
+
+async def _pump_tokens(llm_stream, messages, sampling):
+    """Stream the model, yielding ('token', text) for content and ('status',
+    'reasoning') heartbeats while waiting (the GPU may be cold). Ends with
+    ('truncated', bool) so the caller can tell whether the answer was cut off.
+    """
+    agen = llm_stream(messages, sampling).__aiter__()
+    nxt = asyncio.ensure_future(agen.__anext__())
+    truncated = False
+    while True:
+        try:
+            tok = await asyncio.wait_for(asyncio.shield(nxt), timeout=8)
+        except asyncio.TimeoutError:
+            yield ("status", "reasoning")
+            continue
+        except StopAsyncIteration:
+            break
+        if tok == STREAM_TRUNCATED:
+            truncated = True
+        else:
+            yield ("token", tok)
+        nxt = asyncio.ensure_future(agen.__anext__())
+    yield ("truncated", truncated)
 
 
 # --- simple in-memory rate limiter (per web container) ---
@@ -265,7 +290,11 @@ def create_app(deps: Deps) -> FastAPI:
 
     @api.get("/tools")
     async def tools_list():
-        return {"calculators": [{"name": n, "description": d} for n, (_, d) in CALCULATORS.items()]}
+        return {"calculators": [
+            {"name": n, "label": spec["label"], "args": spec["args"],
+             "description": (CALCULATORS[n][1] if n in CALCULATORS else "")}
+            for n, spec in TOOL_SPECS.items()
+        ]}
 
     @api.post("/tools/run")
     async def tools_run(req: ToolRunRequest):
@@ -349,7 +378,7 @@ def create_app(deps: Deps) -> FastAPI:
             has_token = await db.token_active(token) if token else False
         except Exception:
             has_token = False
-        if not has_token and settings.free_daily_limit > 0:
+        if not has_token and not req.continuation and settings.free_daily_limit > 0:
             try:
                 used = await db.daily_ip_count(ip_hash)
             except Exception:
@@ -373,6 +402,34 @@ def create_app(deps: Deps) -> FastAPI:
             t0 = time.time()
             result = None
             answer = ""
+            truncated = False
+
+            # Continuation: finish a previously cut-off answer. No new retrieval,
+            # sources, tools, or follow-ups; just keep generating from the history.
+            if req.continuation:
+                hist = [
+                    {"role": h.get("role"), "content": h.get("content", "")}
+                    for h in (req.history or []) if h.get("role") in ("user", "assistant")
+                ]
+                cont_messages = [{"role": "system", "content": SYSTEM_PROMPT}] + hist + \
+                    [{"role": "user", "content": CONTINUE_INSTRUCTION}]
+                cont_sampling = {**sampling, "reasoning": False}
+                try:
+                    parts: list[str] = []
+                    async for kind, val in _pump_tokens(deps.llm_stream, cont_messages, cont_sampling):
+                        if kind == "token":
+                            parts.append(val)
+                            yield _sse("token", t=val)
+                        elif kind == "status":
+                            yield _sse("status", stage=val)
+                        elif kind == "truncated":
+                            truncated = val
+                    answer = "".join(parts)
+                    yield _sse("done", chars=len(answer), truncated=truncated)
+                except Exception as e:
+                    yield _sse("error", message=str(e))
+                return
+
             yield _sse("status", stage="starting")
             try:
                 with obs.trace("chat", session_id=sess, user_id=req.user_id, input=msg) as tr:
@@ -448,19 +505,14 @@ def create_app(deps: Deps) -> FastAPI:
 
                     # Stream tokens, heartbeating until the first token (LLM may be cold).
                     parts: list[str] = []
-                    agen = deps.llm_stream(messages, sampling).__aiter__()
-                    nxt = asyncio.ensure_future(agen.__anext__())
-                    while True:
-                        try:
-                            tok = await asyncio.wait_for(asyncio.shield(nxt), timeout=8)
-                        except asyncio.TimeoutError:
-                            yield _sse("status", stage="reasoning")
-                            continue
-                        except StopAsyncIteration:
-                            break
-                        parts.append(tok)
-                        yield _sse("token", t=tok)
-                        nxt = asyncio.ensure_future(agen.__anext__())
+                    async for kind, val in _pump_tokens(deps.llm_stream, messages, sampling):
+                        if kind == "token":
+                            parts.append(val)
+                            yield _sse("token", t=val)
+                        elif kind == "status":
+                            yield _sse("status", stage=val)
+                        elif kind == "truncated":
+                            truncated = val
 
                     answer = "".join(parts)
                     tr.generation("llm-generation", settings.model_repo, messages, answer)
@@ -480,7 +532,7 @@ def create_app(deps: Deps) -> FastAPI:
                         except Exception:
                             pass
 
-                    yield _sse("done", chars=len(answer))
+                    yield _sse("done", chars=len(answer), truncated=truncated)
             except Exception as e:  # surface errors to the client cleanly
                 yield _sse("error", message=str(e))
             finally:

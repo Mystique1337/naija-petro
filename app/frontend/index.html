@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Naija-Petro · Petroleum Engineering Assistant</title>
-<!-- build: ui-8 (open + daily limit + access tokens) -->
+<!-- build: ui-9 (continue, tool picker, onboarding guide) -->
 <meta name="description" content="Nigeria-aware petroleum engineering AI with verifiable, cited sources." />
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛢️</text></svg>" />
 <script>tailwind = window.tailwind || {}; </script>
@@ -83,6 +83,8 @@
         class="hidden sm:block px-2.5 py-1 rounded-full border transition" title="Toggle the model's reasoning trace">
         💭 <span x-text="reasoningOn?'on':'off'"></span>
       </button>
+      <button @click="openTools()" title="Engineering calculators" class="w-8 h-8 grid place-items-center rounded-full border dark:border-[#1f2d27] border-[#e3ece7] hover:border-naija">🧮</button>
+      <button @click="openGuide()" title="How to use Naija-Petro" class="w-8 h-8 grid place-items-center rounded-full border dark:border-[#1f2d27] border-[#e3ece7] hover:border-naija font-bold">?</button>
       <button @click="openToken()" class="relative w-8 h-8 grid place-items-center rounded-full border dark:border-[#1f2d27] border-[#e3ece7] hover:border-naija" :title="tokenOk?'Access token active':'Enter access token'">
         🔑<span x-show="tokenOk" class="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-naija-soft border-2 dark:border-[#0a0f0d] border-white"></span>
       </button>
@@ -189,6 +191,13 @@
                     </a>
                   </template>
                 </div>
+              </div>
+
+              <!-- cut-off notice -->
+              <div x-show="m.truncated && !m.streaming" class="mt-2.5 text-xs text-flare flex flex-wrap items-center gap-2">
+                <span>The response was cut off.</span>
+                <button @click="continueAnswer(m)" class="px-2.5 py-1 rounded-lg bg-naija hover:bg-naija-soft text-white font-semibold">↩︎ Continue</button>
+                <span class="opacity-60">or type "continue"</span>
               </div>
 
               <!-- actions -->
@@ -348,6 +357,82 @@
       </template>
     </div>
   </div>
+
+  <!-- Engineering calculators (user-selected tools) -->
+  <div x-show="toolsModal" x-cloak @keydown.escape.window="toolsModal=false" class="fixed inset-0 z-[55] grid place-items-center bg-black/50 backdrop-blur-sm p-4" @click.self="toolsModal=false">
+    <div class="w-full max-w-lg max-h-[85vh] overflow-hidden flex flex-col rounded-2xl border dark:border-[#1f2d27] border-[#e3ece7] dark:bg-[#0f1714] bg-white shadow-2xl">
+      <div class="flex items-center gap-2 px-5 py-3.5 border-b dark:border-[#1f2d27] border-[#e3ece7]">
+        <button x-show="toolSel" @click="backToTools()" class="text-base opacity-70 hover:opacity-100">←</button>
+        <h2 class="font-bold text-sm">🧮 <span x-text="toolSel ? toolSel.label : 'Engineering calculators'"></span></h2>
+        <button @click="toolsModal=false" class="ml-auto text-sm opacity-60 hover:opacity-100">✕</button>
+      </div>
+
+      <!-- list -->
+      <div x-show="!toolSel" class="overflow-y-auto p-3 space-y-1">
+        <p class="text-xs opacity-60 px-2 pb-1">Pick a calculator, enter your numbers, and get an exact result. These run deterministically, with no model guessing.</p>
+        <template x-for="t in tools" :key="t.name">
+          <button @click="selectTool(t)" class="w-full text-left px-3 py-2.5 rounded-xl border dark:border-[#1f2d27] border-[#e3ece7] hover:border-naija hover:bg-naija/5 transition">
+            <div class="text-sm font-medium" x-text="t.label"></div>
+            <div class="text-[11px] opacity-55 mt-0.5" x-text="t.args.map(a=>a.label).join(', ')"></div>
+          </button>
+        </template>
+        <template x-if="!tools.length"><p class="text-xs opacity-50 p-3 text-center">Loading calculators...</p></template>
+      </div>
+
+      <!-- selected tool form -->
+      <div x-show="toolSel" class="overflow-y-auto p-4 space-y-3">
+        <template x-if="toolSel">
+          <div class="grid grid-cols-2 gap-2.5">
+            <template x-for="a in toolSel.args" :key="a.name">
+              <label class="text-xs">
+                <span class="block opacity-65 mb-1" x-text="a.label + (a.opt?' (optional)':'')"></span>
+                <input type="number" step="any" x-model="toolArgs[a.name]" @keydown.enter="runSelectedTool()"
+                  class="w-full dark:bg-[#0a130f] bg-white border dark:border-[#1f2d27] border-[#e3ece7] focus:border-naija rounded-lg px-2.5 py-2 text-sm outline-none">
+              </label>
+            </template>
+          </div>
+        </template>
+        <div class="text-xs text-red-400" x-show="toolError" x-text="toolError"></div>
+        <button @click="runSelectedTool()" :disabled="toolBusy" class="w-full bg-naija hover:bg-naija-soft text-white text-sm font-semibold rounded-xl py-2.5 disabled:opacity-50">
+          <span x-text="toolBusy?'Computing...':'Compute'"></span>
+        </button>
+        <div x-show="toolResult" class="rounded-xl border border-naija/40 dark:bg-[#0c1f14] bg-naija/5 px-4 py-3">
+          <div class="text-[11px] uppercase tracking-wide opacity-55 mb-1.5">Result</div>
+          <div class="space-y-1">
+            <template x-for="row in toolResultEntries()" :key="row[0]">
+              <div class="flex justify-between text-sm gap-3">
+                <span class="opacity-65" x-text="row[0].replace(/_/g,' ')"></span>
+                <span class="font-semibold text-naija-soft" x-text="(typeof row[1]==='number'? row[1].toLocaleString() : row[1])"></span>
+              </div>
+            </template>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Onboarding guide -->
+  <div x-show="guideModal" x-cloak @keydown.escape.window="closeGuide()" class="fixed inset-0 z-[58] grid place-items-center bg-black/60 backdrop-blur-sm p-4">
+    <div class="w-full max-w-md rounded-2xl border dark:border-[#1f2d27] border-[#e3ece7] dark:bg-[#0f1714] bg-white p-6 shadow-2xl">
+      <div class="flex items-center gap-3 mb-3">
+        <div class="w-11 h-11 rounded-2xl bg-gradient-to-br from-naija to-naija-deep grid place-items-center text-xl">🛢️</div>
+        <div>
+          <h2 class="text-lg font-bold leading-tight">Welcome to Naija-Petro</h2>
+          <div class="text-[11px] text-naija-soft/90">Nigeria-aware petroleum engineering AI</div>
+        </div>
+      </div>
+      <p class="text-sm opacity-75 mb-3">A fine-tuned Qwen3-8B assistant with a live, self-updating retrieval layer. Ask across drilling, reservoir, production, completions, EOR, and Nigerian regulation (PIA 2021, NUPRC, NMDPRA, NNPC). Every answer cites verifiable sources.</p>
+      <div class="space-y-2 text-sm mb-4">
+        <div class="flex gap-2.5"><span>📚</span><span><span class="font-medium">Grounded and cited.</span> Answers pull from Nigerian sources and show citations you can open.</span></div>
+        <div class="flex gap-2.5"><span>🧮</span><span><span class="font-medium">Calculators.</span> Open the 🧮 menu to run exact engineering calculations: OOIP, IPR, decline, PVT, and more.</span></div>
+        <div class="flex gap-2.5"><span>↩︎</span><span><span class="font-medium">Long answers.</span> If a reply gets cut off, click Continue or type "continue" to finish it.</span></div>
+        <div class="flex gap-2.5"><span>⏳</span><span><span class="font-medium">First answer is slow.</span> The model scales to zero to save cost, so the first question after a quiet spell takes about 30 to 60 seconds to spin up the GPU. It is fast after that, and a status indicator shows it is working.</span></div>
+        <div class="flex gap-2.5"><span>🔑</span><span><span class="font-medium">Free to try.</span> <span x-text="dailyLimit"></span> questions a day. Have an access token? Click the 🔑 button to remove the limit.</span></div>
+      </div>
+      <button @click="closeGuide()" class="w-full bg-naija hover:bg-naija-soft text-white text-sm font-semibold rounded-xl py-2.5">Start exploring</button>
+      <div class="text-center text-[11px] opacity-45 mt-3">Built by Ashinze Emmanuel · verify before operational use</div>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -361,6 +446,8 @@ function app(){
     uploading:false, uploadMsg:'',
     accessToken:(localStorage.getItem('np_token')||''), tokenOk:false, tokenModal:false,
     tokenInput:'', tokenMsg:'', tokenChecking:false, dailyLimit:10, limitReached:false,
+    toolsModal:false, tools:[], toolSel:null, toolArgs:{}, toolResult:null, toolError:'', toolBusy:false,
+    guideModal:false,
     sessionId: uid(), userId: persistUid(),
     kb: { documents:0, chunks:0 },
     examples: [
@@ -386,7 +473,33 @@ function app(){
         }catch(e){}
       }
       this.refreshKb();
-      if(localStorage.getItem('np_sub')!=='1'){ setTimeout(()=>{ this.emailModal=true; }, 800); }
+      if(localStorage.getItem('np_guide')!=='1'){ setTimeout(()=>{ this.guideModal=true; }, 400); }
+      else if(localStorage.getItem('np_sub')!=='1'){ setTimeout(()=>{ this.emailModal=true; }, 800); }
+    },
+    openGuide(){ this.guideModal=true; },
+    closeGuide(){ this.guideModal=false; localStorage.setItem('np_guide','1'); if(localStorage.getItem('np_sub')!=='1'){ setTimeout(()=>{ this.emailModal=true; }, 500); } },
+    async openTools(){
+      this.toolsModal=true; this.toolError=''; this.toolSel=null; this.toolResult=null;
+      if(!this.tools.length){ try{ const r=await this.apiFetch('/tools'); if(r.ok){ const d=await r.json(); this.tools=d.calculators||[]; } }catch(e){} }
+    },
+    selectTool(t){ this.toolSel=t; this.toolResult=null; this.toolError=''; this.toolArgs={}; },
+    backToTools(){ this.toolSel=null; this.toolResult=null; this.toolError=''; },
+    toolResultEntries(){ return this.toolResult ? Object.entries(this.toolResult).filter(e=>e[0]!=='formula'&&e[0]!=='units') : []; },
+    async runSelectedTool(){
+      if(!this.toolSel) return;
+      const args={};
+      for(const a of this.toolSel.args){
+        const v=this.toolArgs[a.name];
+        if(v!==''&&v!=null&&!isNaN(parseFloat(v))){ args[a.name]=parseFloat(v); }
+        else if(!a.opt){ this.toolError='Please enter '+a.label+'.'; return; }
+      }
+      this.toolError=''; this.toolBusy=true; this.toolResult=null;
+      try{
+        const r=await this.apiFetch('/tools/run',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name:this.toolSel.name, args }) });
+        const d=await r.json();
+        if(d&&d.error){ this.toolError=d.error; } else { this.toolResult=d; }
+      }catch(e){ this.toolError='Could not run the calculator.'; }
+      finally{ this.toolBusy=false; }
     },
     apiFetch(url, opts){
       opts = opts || {};
@@ -438,13 +551,19 @@ function app(){
 
     async refreshKb(){ try{ const r=await this.apiFetch('/kb/stats'); if(r.ok){ const d=await r.json(); if(d&&d.documents!=null) this.kb=d; } }catch(e){} },
 
+    isContinueCmd(q){ return /^(continue|continue the answer|go on|keep going|carry on|finish( it)?|more)\.?$/i.test((q||'').trim()); },
     async send(text){
       const q=(text||this.input).trim(); if(!q||this.busy) return;
+      const last=this.messages[this.messages.length-1];
+      if(this.isContinueCmd(q) && last && last.role==='assistant' && last.truncated && !last.streaming){
+        this.input=''; if(this.$refs.ta) this.$refs.ta.style.height='auto';
+        return this.continueAnswer(last);
+      }
       this.input=''; if(this.$refs.ta) this.$refs.ta.style.height='auto';
       this.busy=true;
       this.messages.push({ role:'user', content:q });
       const history = this.messages.filter(x=>x.role==='user'||x.role==='assistant').slice(-7,-1).map(x=>({role:x.role, content:(x.answer||x.content||'')}));
-      this.messages.push({ role:'assistant', raw:'', reasoning:'', answer:'', html:'', sources:[], meta:null, streaming:true, stage:'starting', thinking:false, showReason:false, error:null, followups:[], feedback:0, traceId:null, query:q, showComment:false, comment:'', commentSent:false, tools:[] });
+      this.messages.push({ role:'assistant', raw:'', reasoning:'', answer:'', html:'', sources:[], meta:null, streaming:true, stage:'starting', thinking:false, showReason:false, error:null, followups:[], feedback:0, traceId:null, query:q, showComment:false, comment:'', commentSent:false, tools:[], truncated:false });
       const m = this.messages[this.messages.length-1];
       this.scrollDown();
       try{
@@ -468,12 +587,43 @@ function app(){
             else if(evt.type==='tool'){ m.tools.push({name:evt.name, args:evt.args, result:evt.result}); this.scrollDown(); }
             else if(evt.type==='token'){ m.raw+=evt.t; const p=this.splitThink(m.raw); m.reasoning=p.reasoning; m.thinking=p.thinking; m.answer=p.answer; m.html=this.render(m.answer, m.sources); this.scrollDown(); }
             else if(evt.type==='followups'){ m.followups=evt.items||[]; }
-            else if(evt.type==='done'){ m.streaming=false; m.thinking=false; m.html=this.render(m.answer,m.sources); this.typeset(); }
+            else if(evt.type==='done'){ m.streaming=false; m.thinking=false; m.truncated=!!evt.truncated; m.html=this.render(m.answer,m.sources); this.typeset(); }
             else if(evt.type==='error'){ m.error=evt.message; m.streaming=false; m.thinking=false; }
           }
         }
       }catch(e){ m.error=String(e.message||e); }
       finally{ m.streaming=false; m.thinking=false; this.busy=false; this.refreshKb(); this.typeset(); this.scrollDown(); this.$nextTick(()=>this.$refs.ta&&this.$refs.ta.focus()); }
+    },
+
+    async continueAnswer(m){
+      if(this.busy || m.streaming) return;
+      this.busy=true; m.streaming=true; m.truncated=false; m.error=null; m.stage='reasoning';
+      const history=this.messages.filter(x=>x.role==='user'||x.role==='assistant').map(x=>({role:x.role, content:(x.answer||x.content||'')})).slice(-8);
+      this.scrollDown();
+      try{
+        const resp=await this.apiFetch('/chat',{ method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ message:'continue', session_id:this.sessionId, user_id:this.userId, history, reasoning:false, units:this.units, continuation:true }) });
+        if(!resp.ok){
+          const j=await resp.json().catch(()=>({}));
+          if(resp.status===429 && j.limit==='daily'){ this.limitReached=true; this.openToken(); return; }
+          throw new Error(j.error || ('Request failed ('+resp.status+')'));
+        }
+        const reader=resp.body.getReader(); const dec=new TextDecoder(); let buf='';
+        while(true){
+          const {value,done}=await reader.read(); if(done) break;
+          buf+=dec.decode(value,{stream:true}); let idx;
+          while((idx=buf.indexOf('\n\n'))>=0){
+            const line=buf.slice(0,idx).trim(); buf=buf.slice(idx+2);
+            if(!line.startsWith('data:')) continue;
+            let evt; try{ evt=JSON.parse(line.slice(5).trim()); }catch(e){ continue; }
+            if(evt.type==='status'){ m.stage=evt.stage; }
+            else if(evt.type==='token'){ m.raw+=evt.t; const p=this.splitThink(m.raw); m.reasoning=p.reasoning; m.answer=p.answer; m.html=this.render(m.answer,m.sources); this.scrollDown(); }
+            else if(evt.type==='done'){ m.truncated=!!evt.truncated; }
+            else if(evt.type==='error'){ m.error=evt.message; }
+          }
+        }
+      }catch(e){ m.error=String(e.message||e); }
+      finally{ m.streaming=false; m.thinking=false; this.busy=false; m.html=this.render(m.answer,m.sources); this.typeset(); this.scrollDown(); this.$nextTick(()=>this.$refs.ta&&this.$refs.ta.focus()); }
     },
 
     fbPayload(m){ return { session_id:this.sessionId, user_id:this.userId, query:m.query, rating:m.feedback, trace_id:m.traceId, answer:m.answer, sources:m.sources, comment:m.comment||'' }; },
