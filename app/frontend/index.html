@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Naija-Petro · Petroleum Engineering Assistant</title>
-<!-- build: ui-5 (tool calculators + email-on-open) -->
+<!-- build: ui-6 (units, history, upload, feature board) -->
 <meta name="description" content="Nigeria-aware petroleum engineering AI with verifiable, cited sources." />
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛢️</text></svg>" />
 <script>tailwind = window.tailwind || {}; </script>
@@ -76,9 +76,12 @@
         <span class="w-1.5 h-1.5 rounded-full bg-naija-soft animate-pulse"></span>
         <span x-text="`${kb.chunks} sources`"></span>
       </span>
+      <button @click="newChat()" title="New chat" class="w-8 h-8 grid place-items-center rounded-full border dark:border-[#1f2d27] border-[#e3ece7] hover:border-naija text-base leading-none">＋</button>
+      <button @click="openHistory()" title="Saved chats" class="hidden sm:block px-2.5 py-1 rounded-full border dark:border-[#1f2d27] border-[#e3ece7] hover:border-naija">History</button>
+      <button @click="toggleUnits()" title="Toggle field/SI units" class="px-2.5 py-1 rounded-full border dark:border-[#1f2d27] border-[#e3ece7] hover:border-naija"><span x-text="units==='si'?'SI':'Field'"></span></button>
       <button @click="reasoningOn=!reasoningOn" :class="reasoningOn ? 'border-naija/60 text-naija-soft' : 'dark:border-[#1f2d27] border-[#e3ece7] opacity-60'"
-        class="px-2.5 py-1 rounded-full border transition" title="Toggle the model's reasoning trace">
-        💭 Reasoning <span x-text="reasoningOn?'on':'off'"></span>
+        class="hidden sm:block px-2.5 py-1 rounded-full border transition" title="Toggle the model's reasoning trace">
+        💭 <span x-text="reasoningOn?'on':'off'"></span>
       </button>
       <button @click="toggleTheme()" class="w-8 h-8 grid place-items-center rounded-full border dark:border-[#1f2d27] border-[#e3ece7]" title="Toggle theme">
         <span x-show="dark">☀️</span><span x-show="!dark">🌙</span>
@@ -219,7 +222,13 @@
 
   <!-- Composer -->
   <footer class="border-t dark:border-[#1f2d27] border-[#e3ece7] backdrop-blur bg-white/60 dark:bg-[#0a0f0d]/70 px-4 sm:px-6 py-3">
+    <div x-show="uploadMsg" class="max-w-3xl mx-auto mb-1.5 text-[11px] text-naija-soft" x-text="uploadMsg"></div>
     <div class="max-w-3xl mx-auto flex items-end gap-2">
+      <input type="file" x-ref="file" class="hidden" accept=".pdf,.txt,.md,.csv,.json" @change="uploadFile($event)">
+      <button @click="$refs.file.click()" :disabled="uploading" title="Upload a document (PDF or text) to ask about it"
+        class="shrink-0 h-11 w-11 grid place-items-center rounded-xl border dark:border-[#1f2d27] border-[#e3ece7] hover:border-naija disabled:opacity-40 text-base">
+        <span x-show="!uploading">📎</span><span x-show="uploading">…</span>
+      </button>
       <textarea x-ref="ta" x-model="input" rows="1" :disabled="busy"
         @keydown.enter.prevent="!$event.shiftKey && send()" @input="autosize($event.target)"
         placeholder="Ask about drilling, reservoir, the PIA 2021, NUPRC regulations…"
@@ -236,6 +245,7 @@
       </span>
       <span class="flex items-center gap-2">
         <button @click="openEmail()" class="underline hover:text-naija-soft">Get updates</button>
+        <button @click="openFeature()" class="underline hover:text-naija-soft">Suggest a feature</button>
         <span class="hidden sm:inline opacity-70">· Qwen3-8B + dynamic RAG · verify before operational use</span>
       </span>
     </div>
@@ -266,6 +276,45 @@
       </template>
     </div>
   </div>
+
+  <!-- History slide-over -->
+  <div x-show="showHistory" x-cloak class="fixed inset-0 z-40 flex" @keydown.escape.window="showHistory=false">
+    <div class="w-80 max-w-[85vw] h-full dark:bg-[#0f1714] bg-white border-r dark:border-[#1f2d27] border-[#e3ece7] p-4 overflow-y-auto shadow-2xl">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="font-bold">Your chats</h2>
+        <button @click="newChat()" class="text-xs px-2.5 py-1 rounded-lg bg-naija hover:bg-naija-soft text-white">+ New</button>
+      </div>
+      <template x-if="!sessions.length"><p class="text-xs opacity-60">No saved chats yet. Ask something and it will appear here next time.</p></template>
+      <div class="space-y-1">
+        <template x-for="s in sessions" :key="s.session_id">
+          <button @click="openSession(s.session_id)" class="w-full text-left text-xs px-3 py-2 rounded-lg dark:hover:bg-[#16221c] hover:bg-[#eef5f1] truncate" x-text="s.title || '(untitled chat)'"></button>
+        </template>
+      </div>
+    </div>
+    <div class="flex-1 bg-black/40" @click="showHistory=false"></div>
+  </div>
+
+  <!-- Feature request modal -->
+  <div x-show="showFeature" x-cloak class="fixed inset-0 z-50 grid place-items-center bg-black/50 backdrop-blur-sm p-4" @click.self="showFeature=false">
+    <div class="w-full max-w-sm rounded-2xl border dark:border-[#1f2d27] border-[#e3ece7] dark:bg-[#0f1714] bg-white p-5 shadow-2xl">
+      <h2 class="text-lg font-bold mb-1">💡 Suggest a feature</h2>
+      <p class="text-sm opacity-70 mb-3">What would make Naija-Petro more useful for you?</p>
+      <template x-if="!featureSent">
+        <div>
+          <textarea x-model="featureText" rows="3" placeholder="e.g. add a nodal analysis calculator, or support for well-log files"
+            class="w-full dark:bg-[#0a130f] bg-white border dark:border-[#1f2d27] border-[#e3ece7] focus:border-naija rounded-xl px-3 py-2.5 text-sm outline-none mb-2 resize-none"></textarea>
+          <div class="text-xs text-red-400 mb-2" x-show="featureError" x-text="featureError"></div>
+          <div class="flex gap-2">
+            <button @click="submitFeature()" class="flex-1 bg-naija hover:bg-naija-soft text-white text-sm font-semibold rounded-xl py-2.5">Submit</button>
+            <button @click="showFeature=false" class="px-3 text-sm opacity-60 hover:opacity-100">Cancel</button>
+          </div>
+        </div>
+      </template>
+      <template x-if="featureSent">
+        <div class="text-center py-3"><div class="text-2xl mb-1">✓</div><p class="text-sm">Thanks for the suggestion.</p></div>
+      </template>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -273,6 +322,10 @@ function app(){
   return {
     messages: [], input:'', busy:false, dark:true, reasoningOn:false,
     emailModal:false, email:'', wantsUpdates:true, subscribed:false, emailError:'',
+    units:(localStorage.getItem('np_units')||'field'),
+    showHistory:false, sessions:[],
+    showFeature:false, featureText:'', featureSent:false, featureError:'',
+    uploading:false, uploadMsg:'',
     sessionId: uid(), userId: persistUid(),
     kb: { documents:0, chunks:0 },
     examples: [
@@ -332,7 +385,7 @@ function app(){
       this.scrollDown();
       try{
         const resp = await fetch('/chat', { method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ message:q, session_id:this.sessionId, user_id:this.userId, history, reasoning:this.reasoningOn }) });
+          body: JSON.stringify({ message:q, session_id:this.sessionId, user_id:this.userId, history, reasoning:this.reasoningOn, units:this.units }) });
         if(!resp.ok){ const t=await resp.text().catch(()=> ''); throw new Error(resp.status===429?'You are sending requests too quickly. Please wait a moment.':('Request failed ('+resp.status+')')); }
         const reader=resp.body.getReader(); const dec=new TextDecoder(); let buf='';
         while(true){
@@ -376,6 +429,46 @@ function app(){
         if(r.ok){ this.subscribed=true; localStorage.setItem('np_sub','1'); setTimeout(()=>{ this.emailModal=false; }, 1500); }
         else { const d=await r.json().catch(()=>({})); this.emailError=d.error||'Could not save right now.'; }
       }catch(err){ this.emailError='Network error, please try again.'; }
+    },
+    toggleUnits(){ this.units = this.units==='field'?'si':'field'; localStorage.setItem('np_units', this.units); },
+    async openHistory(){
+      this.showHistory=true;
+      try{ const r=await fetch('/history?user_id='+encodeURIComponent(this.userId)); if(r.ok){ const d=await r.json(); this.sessions=d.sessions||[]; } }catch(e){}
+    },
+    newChat(){ this.messages=[]; this.sessionId=uid(); this.showHistory=false; },
+    async openSession(sid){
+      this.showHistory=false;
+      try{
+        const r=await fetch('/history/'+encodeURIComponent(sid)); if(!r.ok) return;
+        const d=await r.json(); this.messages=[];
+        for(const t of (d.turns||[])){
+          if(t.role==='user') this.messages.push({role:'user', content:t.content});
+          else this.messages.push({role:'assistant', raw:t.content, reasoning:'', answer:t.content, html:this.render(t.content,[]), sources:[], meta:null, streaming:false, thinking:false, showReason:false, error:null, followups:[], feedback:0, traceId:null, query:'', showComment:false, comment:'', commentSent:false, tools:[]});
+        }
+        this.sessionId=sid; this.typeset(); this.scrollDown();
+      }catch(e){}
+    },
+    openFeature(){ this.featureError=''; this.featureSent=false; this.showFeature=true; },
+    async submitFeature(){
+      const t=(this.featureText||'').trim();
+      if(t.length<3){ this.featureError='Please describe the feature.'; return; }
+      try{
+        const r=await fetch('/feature',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:t, email:(this.email||null), session_id:this.sessionId})});
+        if(r.ok){ this.featureSent=true; this.featureText=''; setTimeout(()=>{ this.showFeature=false; }, 1600); }
+        else { const d=await r.json().catch(()=>({})); this.featureError=d.error||'Could not save right now.'; }
+      }catch(e){ this.featureError='Network error, please try again.'; }
+    },
+    async uploadFile(ev){
+      const f=ev.target.files && ev.target.files[0]; if(!f) return;
+      this.uploading=true; this.uploadMsg='Uploading '+f.name+' ...';
+      const fd=new FormData(); fd.append('file', f); fd.append('session_id', this.sessionId); fd.append('user_id', this.userId);
+      try{
+        const r=await fetch('/upload',{method:'POST', body:fd});
+        const d=await r.json().catch(()=>({}));
+        if(r.ok && d.ok){ this.uploadMsg = d.inserted ? `Added "${d.filename}" (${d.chunks} chunks). You can ask about it now.` : `"${d.filename}" is already in the knowledge base.`; this.refreshKb(); }
+        else { this.uploadMsg = (d.error||'Upload failed.'); }
+      }catch(e){ this.uploadMsg='Upload failed.'; }
+      finally{ this.uploading=false; ev.target.value=''; setTimeout(()=>{ this.uploadMsg=''; }, 7000); }
     },
     copy(text, ev){ navigator.clipboard.writeText(text||'').then(()=>{ if(ev&&ev.target){ const t=ev.target.textContent; ev.target.textContent='✓ Copied'; setTimeout(()=>ev.target.textContent=t,1200); } }); },
     exportMd(m){ const blob=new Blob([m.answer||''],{type:'text/markdown'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='naija-petro-answer.md'; a.click(); URL.revokeObjectURL(a.href); },
