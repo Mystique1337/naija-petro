@@ -46,15 +46,9 @@ vllm_image = (
 
 encoders_image = (
     modal.Image.debian_slim(python_version="3.11")
-    .pip_install(
-        # Pin to the transformers-4.x era: transformers 5.x removed
-        # tokenizer.prepare_for_model, which FlagEmbedding's bge-reranker needs.
-        "transformers>=4.44,<4.46",
-        "sentence-transformers>=3.0,<3.4",
-        "FlagEmbedding>=1.2,<1.3",
-        "einops",
-        "huggingface_hub>=0.24,<0.26",
-    )
+    # nomic embeddings + bge reranker both via sentence-transformers (CrossEncoder),
+    # so no FlagEmbedding/peft and no transformers pin needed.
+    .pip_install("sentence-transformers>=3.0", "einops", "huggingface_hub>=0.27")
     .env({"HF_HOME": HF_CACHE_DIR})
     .add_local_python_source("app")
 )

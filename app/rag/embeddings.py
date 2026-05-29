@@ -34,18 +34,17 @@ class EmbeddingModel:
 
 
 class Reranker:
-    def __init__(self, model_name: str = "BAAI/bge-reranker-v2-m3", use_fp16: bool = True):
-        from FlagEmbedding import FlagReranker
+    """Cross-encoder reranker via sentence-transformers (fast tokenizer, no FlagEmbedding/peft)."""
+
+    def __init__(self, model_name: str = "BAAI/bge-reranker-v2-m3", max_length: int = 512):
+        from sentence_transformers import CrossEncoder
 
         self.model_name = model_name
-        self.model = FlagReranker(model_name, use_fp16=use_fp16)
+        self.model = CrossEncoder(model_name, max_length=max_length)
 
     def score(self, query: str, passages: list[str]) -> list[float]:
         if not passages:
             return []
-        pairs = [[query, p] for p in passages]
-        scores = self.model.compute_score(pairs, normalize=True)
-        # FlagReranker returns a float for a single pair, list otherwise.
-        if isinstance(scores, (int, float)):
-            return [float(scores)]
+        pairs = [(query, p) for p in passages]
+        scores = self.model.predict(pairs, show_progress_bar=False)
         return [float(s) for s in scores]
