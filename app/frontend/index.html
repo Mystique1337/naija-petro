@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en" class="h-full">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Naija-Petro · Petroleum Engineering Assistant</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛢️</text></svg>" />
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: { extend: {
+      colors: {
+        ink: '#0a0f0d', panel: '#0f1714', edge: '#1d2a25',
+        naija: { DEFAULT: '#16a34a', soft: '#22c55e', deep: '#0c5a32' },
+        flare: '#f59e0b',
+      },
+      fontFamily: { sans: ['Inter','ui-sans-serif','system-ui'] },
+    }}
+  }
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3/dist/cdn.min.js"></script>
+<style>
+  html,body{background:#070b09;font-family:'Inter',sans-serif}
+  .prose-petro{line-height:1.65;font-size:.95rem;color:#dbe7e0}
+  .prose-petro h1,.prose-petro h2,.prose-petro h3{color:#fff;font-weight:600;margin:.8em 0 .35em}
+  .prose-petro h2{font-size:1.05rem}.prose-petro h3{font-size:1rem}
+  .prose-petro p{margin:.5em 0}.prose-petro ul,.prose-petro ol{margin:.5em 0 .5em 1.2em;list-style:revert}
+  .prose-petro li{margin:.2em 0}.prose-petro code{background:#11201a;padding:.1em .35em;border-radius:.3em;font-size:.85em}
+  .prose-petro pre{background:#0b1511;border:1px solid #1d2a25;padding:.8em;border-radius:.6em;overflow-x:auto;margin:.6em 0}
+  .prose-petro pre code{background:none;padding:0}.prose-petro table{border-collapse:collapse;margin:.6em 0;width:100%}
+  .prose-petro th,.prose-petro td{border:1px solid #1d2a25;padding:.35em .6em;text-align:left}
+  .prose-petro a{color:#22c55e;text-decoration:underline}
+  .cite{display:inline-flex;align-items:center;justify-content:center;min-width:1.1rem;height:1.1rem;padding:0 .25rem;
+    margin:0 .1rem;font-size:.7rem;font-weight:700;color:#052e16;background:#22c55e;border-radius:.35rem;text-decoration:none;vertical-align:.15em}
+  .dot{animation:blink 1.4s infinite both}.dot:nth-child(2){animation-delay:.2s}.dot:nth-child(3){animation-delay:.4s}
+  @keyframes blink{0%,80%,100%{opacity:.2}40%{opacity:1}}
+  ::-webkit-scrollbar{width:9px;height:9px}::-webkit-scrollbar-thumb{background:#1d2a25;border-radius:6px}
+  [x-cloak]{display:none!important}
+</style>
+</head>
+<body class="h-full text-slate-200">
+<div x-data="chat()" x-init="init()" class="flex flex-col h-screen max-w-5xl mx-auto">
+
+  <!-- Header -->
+  <header class="flex items-center gap-3 px-5 py-3 border-b border-edge bg-panel/70 backdrop-blur">
+    <div class="text-2xl">🛢️</div>
+    <div class="leading-tight">
+      <div class="font-semibold text-white">Naija-Petro</div>
+      <div class="text-xs text-slate-400">Petroleum Engineering Assistant · Nigeria-aware RAG</div>
+    </div>
+    <div class="ml-auto flex items-center gap-3 text-xs">
+      <span class="flex items-center gap-1.5 text-slate-400">
+        <span class="w-2 h-2 rounded-full bg-naija-soft animate-pulse"></span> live
+      </span>
+      <span class="px-2.5 py-1 rounded-full bg-ink border border-edge text-slate-300"
+            x-text="`📚 ${kb.documents} docs · ${kb.chunks} chunks`"></span>
+    </div>
+  </header>
+
+  <!-- Messages -->
+  <main x-ref="scroll" class="flex-1 overflow-y-auto px-4 py-6 space-y-6">
+
+    <!-- Empty / welcome -->
+    <template x-if="messages.length === 0">
+      <div class="max-w-2xl mx-auto text-center mt-6">
+        <div class="text-4xl mb-3">🛢️</div>
+        <h1 class="text-xl font-semibold text-white mb-1">Ask about petroleum engineering — grounded in Nigerian sources</h1>
+        <p class="text-sm text-slate-400 mb-6">Answers cite verifiable sources (NUPRC, NMDPRA, NNPC, NEITI, the PIA 2021). The knowledge base grows with every question.</p>
+        <div class="grid sm:grid-cols-2 gap-2 text-left">
+          <template x-for="ex in examples" :key="ex">
+            <button @click="send(ex)"
+              class="text-sm px-4 py-3 rounded-xl bg-panel border border-edge hover:border-naija hover:bg-edge/40 transition text-slate-300"
+              x-text="ex"></button>
+          </template>
+        </div>
+      </div>
+    </template>
+
+    <!-- Conversation -->
+    <template x-for="(m, i) in messages" :key="i">
+      <div class="max-w-3xl mx-auto w-full">
+        <!-- user -->
+        <template x-if="m.role === 'user'">
+          <div class="flex justify-end">
+            <div class="bg-naija-deep/60 border border-naija/40 rounded-2xl rounded-br-sm px-4 py-2.5 text-sm text-white max-w-[85%]" x-text="m.content"></div>
+          </div>
+        </template>
+        <!-- assistant -->
+        <template x-if="m.role === 'assistant'">
+          <div class="flex gap-3">
+            <div class="shrink-0 w-8 h-8 rounded-lg bg-naija-deep grid place-items-center text-sm">🛢️</div>
+            <div class="min-w-0 flex-1">
+              <!-- status chips -->
+              <div class="flex flex-wrap gap-1.5 mb-2" x-show="m.meta">
+                <span class="text-[11px] px-2 py-0.5 rounded-full bg-ink border border-edge text-slate-400"
+                      x-show="m.sources && m.sources.length"
+                      x-text="`grounded in ${m.sources.length} source${m.sources.length>1?'s':''}`"></span>
+                <span class="text-[11px] px-2 py-0.5 rounded-full bg-ink border border-edge text-slate-400"
+                      x-show="m.meta && m.meta.coverage !== undefined"
+                      x-text="`coverage ${Math.round((m.meta.coverage||0)*100)}%`"></span>
+                <span class="text-[11px] px-2 py-0.5 rounded-full bg-flare/15 border border-flare/40 text-flare"
+                      x-show="m.meta && m.meta.kb_added > 0"
+                      x-text="`🌱 knowledge base grew +${m.meta.kb_added}`"></span>
+                <span class="text-[11px] px-2 py-0.5 rounded-full bg-ink border border-edge text-slate-500"
+                      x-show="m.meta && m.meta.reranked">reranked</span>
+              </div>
+              <!-- thinking dots -->
+              <div x-show="m.streaming && !m.content" class="flex gap-1 py-2 text-naija-soft text-2xl leading-none">
+                <span class="dot">·</span><span class="dot">·</span><span class="dot">·</span>
+              </div>
+              <!-- answer -->
+              <div class="prose-petro" x-html="m.html"></div>
+              <!-- sources -->
+              <div x-show="m.sources && m.sources.length" class="mt-3 pt-3 border-t border-edge">
+                <div class="text-[11px] uppercase tracking-wide text-slate-500 mb-1.5">Sources</div>
+                <div class="space-y-1">
+                  <template x-for="s in m.sources" :key="s.n">
+                    <a :href="s.url" target="_blank" rel="noopener"
+                       class="flex items-start gap-2 text-xs text-slate-300 hover:text-naija-soft group">
+                      <span class="cite shrink-0" x-text="s.n"></span>
+                      <span class="truncate group-hover:underline" x-text="s.title"></span>
+                      <span class="ml-auto shrink-0 px-1.5 rounded text-[10px] border"
+                            :class="s.tier===1 ? 'border-naija/50 text-naija-soft' : s.tier===2 ? 'border-flare/40 text-flare' : 'border-edge text-slate-500'"
+                            x-text="s.tier===1?'official':s.tier===2?'reference':'news'"></span>
+                    </a>
+                  </template>
+                </div>
+              </div>
+              <div x-show="m.error" class="text-sm text-red-400 mt-1" x-text="m.error"></div>
+            </div>
+          </div>
+        </template>
+      </div>
+    </template>
+  </main>
+
+  <!-- Composer -->
+  <footer class="border-t border-edge bg-panel/70 backdrop-blur px-4 py-3">
+    <div class="max-w-3xl mx-auto flex items-end gap-2">
+      <textarea x-ref="ta" x-model="input" rows="1" :disabled="busy"
+        @keydown.enter.prevent="!$event.shiftKey && send()"
+        @input="autosize($event.target)"
+        placeholder="Ask about drilling, reservoir, the PIA 2021, NUPRC regulations…"
+        class="flex-1 resize-none max-h-40 bg-ink border border-edge focus:border-naija rounded-xl px-4 py-3 text-sm text-white placeholder:text-slate-500 outline-none"></textarea>
+      <button @click="send()" :disabled="busy || !input.trim()"
+        class="shrink-0 h-11 px-4 rounded-xl bg-naija hover:bg-naija-soft disabled:opacity-40 disabled:cursor-not-allowed text-white font-medium text-sm transition">
+        <span x-show="!busy">Send</span><span x-show="busy">…</span>
+      </button>
+    </div>
+    <p class="max-w-3xl mx-auto text-[11px] text-slate-600 mt-2">Naija-Petro can be wrong — validate with qualified engineers before operational use.</p>
+  </footer>
+</div>
+
+<script>
+function chat(){
+  return {
+    messages: [], input: '', busy: false,
+    sessionId: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now())),
+    kb: { documents: 0, chunks: 0 },
+    examples: [
+      "Summarise the upstream fiscal terms under Nigeria's PIA 2021.",
+      "What does NUPRC regulate, and how does it differ from NMDPRA?",
+      "Explain the material balance equation for an undersaturated reservoir.",
+      "What are the screening criteria for CO₂ EOR in Niger Delta reservoirs?",
+    ],
+    init(){ this.refreshKb(); marked.setOptions({breaks:true, gfm:true}); },
+    autosize(el){ el.style.height='auto'; el.style.height=Math.min(el.scrollHeight,160)+'px'; },
+    scrollDown(){ this.$nextTick(()=>{ this.$refs.scroll.scrollTop = this.$refs.scroll.scrollHeight; }); },
+    render(text, sources){
+      let html = marked.parse(text||'');
+      // Turn [n] into clickable citation chips linking to the matching source.
+      if(sources && sources.length){
+        const esc = u => String(u||'').replace(/"/g,'%22');
+        const byN = Object.fromEntries(sources.map(s=>[s.n, esc(s.url)]));
+        html = html.replace(/\[(\d{1,2})\]/g, (m,n)=> byN[n] ? `<a class="cite" href="${byN[n]}" target="_blank" rel="noopener">${n}</a>` : m);
+      }
+      // Sanitize the final HTML (drops unsafe schemes/markup), keeping target attrs.
+      return DOMPurify.sanitize(html, { ADD_ATTR: ['target'] });
+    },
+    async refreshKb(){
+      try{ const r = await fetch('/kb/stats'); if(r.ok){ const d = await r.json(); if(d && d.documents!=null){ this.kb = d; } } }catch(e){}
+    },
+    async send(text){
+      const q = (text || this.input).trim();
+      if(!q || this.busy) return;
+      this.input=''; if(this.$refs.ta){ this.$refs.ta.style.height='auto'; }
+      this.busy = true;
+      this.messages.push({ role:'user', content:q });
+      const history = this.messages.filter(m=>m.role==='user'||m.role==='assistant')
+        .slice(-7,-1).map(m=>({role:m.role, content:m.content}));
+      const m = { role:'assistant', content:'', html:'', sources:[], meta:null, streaming:true, error:null };
+      this.messages.push(m); this.scrollDown();
+      try{
+        const resp = await fetch('/chat', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ message:q, session_id:this.sessionId, history })
+        });
+        if(!resp.ok || !resp.body) throw new Error('Request failed ('+resp.status+')');
+        const reader = resp.body.getReader(); const dec = new TextDecoder(); let buf='';
+        while(true){
+          const {value, done} = await reader.read(); if(done) break;
+          buf += dec.decode(value, {stream:true});
+          let idx;
+          while((idx = buf.indexOf('\n\n')) >= 0){
+            const line = buf.slice(0, idx).trim(); buf = buf.slice(idx+2);
+            if(!line.startsWith('data:')) continue;
+            const evt = JSON.parse(line.slice(5).trim());
+            if(evt.type==='meta'){ m.sources = evt.sources||[]; m.meta = evt; if(evt.kb_added) this.refreshKb(); }
+            else if(evt.type==='token'){ m.content += evt.t; m.html = this.render(m.content, m.sources); this.scrollDown(); }
+            else if(evt.type==='done'){ m.streaming=false; m.html=this.render(m.content, m.sources); }
+            else if(evt.type==='error'){ m.error = evt.message; m.streaming=false; }
+          }
+        }
+      }catch(e){ m.error = String(e.message||e); }
+      finally{ m.streaming=false; this.busy=false; this.refreshKb(); this.scrollDown();
+        this.$nextTick(()=>this.$refs.ta && this.$refs.ta.focus()); }
+    },
+  }
+}
+</script>
+</body>
+</html>
