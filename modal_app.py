@@ -58,7 +58,7 @@ web_image = (
     modal.Image.debian_slim(python_version="3.11")
     .pip_install(
         "fastapi[standard]>=0.115", "asyncpg>=0.29", "pgvector>=0.3", "httpx>=0.27",
-        "trafilatura>=1.12", "pymupdf4llm>=0.0.17", "langfuse>=3.0", "openai>=1.55",
+        "trafilatura>=1.12", "pymupdf4llm>=0.0.17", "langfuse>=4.0", "openai>=1.55",
     )
     .env({"FRONTEND_DIR": FRONTEND_REMOTE})
     .add_local_python_source("app")

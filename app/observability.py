@@ -1,12 +1,13 @@
-"""Best-effort Langfuse tracing for the RAG pipeline.
+"""Best-effort Langfuse (v4) tracing for the RAG pipeline.
 
 Tracing must NEVER break a request: every Langfuse call is guarded, and if the
 SDK is missing/misconfigured the helpers degrade to no-ops. We record one trace
-per chat turn with a retrieval span and an LLM generation.
+per chat turn (a "chat" span carrying retrieval metadata) with a nested LLM
+"generation". Trace-level attributes (session_id/user_id) use propagate_attributes.
 """
 from __future__ import annotations
 
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 
 from app.config import settings
 
@@ -24,21 +25,22 @@ def get_client():
     try:
         from langfuse import Langfuse
 
-        _client = Langfuse(
+        kwargs = dict(
             public_key=settings.langfuse_public_key,
             secret_key=settings.langfuse_secret_key,
-            host=settings.langfuse_host,
         )
+        if settings.langfuse_host:
+            kwargs["host"] = settings.langfuse_host
+        _client = Langfuse(**kwargs)
     except Exception:
         _client = None
     return _client
 
 
 class _Span:
-    """Thin, fully-guarded wrapper around a Langfuse span/trace."""
+    """Fully-guarded wrapper around a Langfuse v4 span."""
 
-    def __init__(self, client, span):
-        self._c = client
+    def __init__(self, span):
         self._s = span
 
     def event(self, name: str, **kw):
@@ -49,8 +51,9 @@ class _Span:
 
     def generation(self, name: str, model: str, input, output: str, usage: dict | None = None):
         try:
-            gen = self._c.start_generation(name=name, model=model, input=input)
-            gen.end(output=output, usage_details=usage)
+            gen = self._s.start_observation(name=name, as_type="generation", model=model, input=input)
+            gen.update(output=output, usage_details=usage)
+            gen.end()
         except Exception:
             pass
 
@@ -73,22 +76,39 @@ def trace(name: str, *, session_id=None, user_id=None, input=None, metadata=None
     if client is None:
         yield _Noop()
         return
-    cm = None
+
+    stack = ExitStack()
+    handle = _Noop()
     try:
-        cm = client.start_as_current_span(name=name, input=input)
-        span = cm.__enter__()
+        from langfuse import propagate_attributes
+
+        stack.enter_context(propagate_attributes(session_id=session_id, user_id=user_id))
+        span = stack.enter_context(
+            client.start_as_current_observation(name=name, as_type="span", input=input)
+        )
+        if metadata:
+            try:
+                span.update(metadata=metadata)
+            except Exception:
+                pass
+        handle = _Span(span)
+    except Exception:
+        # Setup failed — degrade to no-op but still yield exactly once.
         try:
-            span.update_trace(session_id=session_id, user_id=user_id, metadata=metadata)
+            stack.close()
         except Exception:
             pass
-        yield _Span(client, span)
-    except Exception:
-        # If the SDK surface differs, don't take the request down with it.
-        yield _Noop()
+        stack = None
+
+    try:
+        yield handle
     finally:
+        if stack is not None:
+            try:
+                stack.close()
+            except Exception:
+                pass
         try:
-            if cm is not None:
-                cm.__exit__(None, None, None)
             client.flush()
         except Exception:
             pass
