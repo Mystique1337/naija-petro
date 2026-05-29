@@ -6,13 +6,16 @@ module never imports Modal — keeping it cycle-free and unit-testable with a st
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import os
+import time
+from collections import defaultdict, deque
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Awaitable, Callable, Optional
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -25,6 +28,12 @@ from app.rag.retriever import retrieve
 
 FRONTEND_DIR = Path(os.environ.get("FRONTEND_DIR") or (Path(__file__).resolve().parent.parent / "frontend"))
 
+FOLLOWUP_SYS = (
+    "You suggest follow-up questions for a petroleum-engineering assistant focused on "
+    "Nigeria. Output exactly three short, distinct questions, one per line, no numbering "
+    "or preamble. Do not use em-dashes."
+)
+
 
 @dataclass
 class Deps:
@@ -33,6 +42,7 @@ class Deps:
     llm_stream: Callable[[list[dict], dict], "Awaitable"]      # async generator
     rerank: Optional[Callable[[str, list[str]], Awaitable[list[float]]]] = None
     spawn_enrich: Optional[Callable[[str], None]] = None
+    llm_complete: Optional[Callable[[list[dict], dict], Awaitable[str]]] = None
 
 
 class ChatRequest(BaseModel):
@@ -40,14 +50,50 @@ class ChatRequest(BaseModel):
     session_id: Optional[str] = None
     user_id: Optional[str] = None
     history: Optional[list[dict]] = None
+    reasoning: bool = True
+
+
+class FeedbackRequest(BaseModel):
+    session_id: Optional[str] = None
+    user_id: Optional[str] = None
+    query: Optional[str] = None
+    rating: int = 0          # 1 = up, -1 = down
+    trace_id: Optional[str] = None
+    comment: Optional[str] = None
 
 
 def _sse(kind: str, **data) -> str:
     return f"data: {json.dumps({'type': kind, **data})}\n\n"
 
 
+# --- simple in-memory rate limiter (per web container) ---
+_hits: dict = defaultdict(deque)
+
+
+def _rate_ok(key: str, max_n: int, window_s: int) -> bool:
+    now = time.time()
+    dq = _hits[key]
+    while dq and dq[0] < now - window_s:
+        dq.popleft()
+    if len(dq) >= max_n:
+        return False
+    dq.append(now)
+    return True
+
+
+def _client_ip(request: Request) -> str:
+    xff = request.headers.get("x-forwarded-for", "")
+    if xff:
+        return xff.split(",")[0].strip()
+    return request.client.host if request.client else "0.0.0.0"
+
+
+def _hash_ip(ip: str) -> str:
+    return hashlib.sha256((ip + settings.ip_salt).encode()).hexdigest()[:32]
+
+
 def create_app(deps: Deps) -> FastAPI:
-    api = FastAPI(title="Naija-Petro", version="0.1.0")
+    api = FastAPI(title="Naija-Petro", version="0.2.0")
 
     @api.get("/healthz")
     async def healthz():
@@ -61,37 +107,68 @@ def create_app(deps: Deps) -> FastAPI:
         except Exception as e:
             return JSONResponse({"error": str(e)}, status_code=503)
 
+    @api.post("/feedback")
+    async def feedback(fb: FeedbackRequest):
+        try:
+            await db.log_feedback(fb.model_dump())
+        except Exception:
+            pass
+        try:
+            client = obs.get_client()
+            if client and fb.trace_id and fb.rating:
+                client.create_score(name="user_feedback", value=fb.rating,
+                                    trace_id=fb.trace_id, data_type="NUMERIC")
+                client.flush()
+        except Exception:
+            pass
+        return {"ok": True}
+
     @api.post("/chat")
-    async def chat(req: ChatRequest):
+    async def chat(req: ChatRequest, request: Request):
+        # --- gates (checked before we start streaming) ---
+        if settings.access_key:
+            key = request.headers.get("x-access-key") or request.query_params.get("key", "")
+            if key != settings.access_key:
+                return JSONResponse({"error": "Unauthorized"}, status_code=401)
+        msg = (req.message or "").strip()
+        if not msg:
+            return JSONResponse({"error": "Empty message"}, status_code=400)
+        if len(msg) > settings.max_query_chars:
+            return JSONResponse({"error": f"Message too long (max {settings.max_query_chars})"}, status_code=400)
+
+        ip_hash = _hash_ip(_client_ip(request))
+        sess = req.session_id or ip_hash
+        country = request.headers.get("cf-ipcountry") or request.headers.get("x-vercel-ip-country")
+        if not (_rate_ok(f"m:{ip_hash}", settings.rate_limit_max, settings.rate_limit_window_s)
+                and _rate_ok(f"h:{ip_hash}", settings.rate_limit_max_hour, 3600)
+                and _rate_ok(f"m:{sess}", settings.rate_limit_max, settings.rate_limit_window_s)):
+            return JSONResponse({"error": "Rate limit exceeded. Please wait a moment."}, status_code=429)
+
         sampling = {
             "temperature": settings.temperature,
             "top_p": settings.top_p,
             "max_tokens": settings.max_new_tokens,
+            "reasoning": req.reasoning,
         }
 
         async def gen():
-            # Emit a byte immediately so the connection starts streaming before any
-            # slow work (GPU cold starts), and heartbeat during long waits so the
-            # proxy doesn't idle-close. The UI ignores "status" events.
+            t0 = time.time()
+            result = None
+            answer = ""
             yield _sse("status", stage="starting")
             try:
-                with obs.trace(
-                    "chat",
-                    session_id=req.session_id,
-                    user_id=req.user_id,
-                    input=req.message,
-                ) as tr:
+                with obs.trace("chat", session_id=sess, user_id=req.user_id, input=msg) as tr:
                     rerank_fn = deps.rerank if (settings.enable_rerank and deps.rerank) else None
 
                     # Retrieve, heartbeating while we wait (Encoders may be cold).
-                    rtask = asyncio.ensure_future(retrieve(req.message, deps.embed, rerank_fn))
+                    rtask = asyncio.ensure_future(retrieve(msg, deps.embed, rerank_fn))
                     while True:
                         try:
                             result = await asyncio.wait_for(asyncio.shield(rtask), timeout=8)
                             break
                         except asyncio.TimeoutError:
-                            yield _sse("status", stage="retrieving")
-                    messages, sources = build_messages(req.message, result.chunks, req.history)
+                            yield _sse("status", stage="searching")
+                    messages, sources = build_messages(msg, result.chunks, req.history)
 
                     tr.update(metadata={
                         "coverage": round(result.coverage, 3),
@@ -103,7 +180,7 @@ def create_app(deps: Deps) -> FastAPI:
 
                     if settings.always_enrich and not result.enriched and deps.spawn_enrich:
                         try:
-                            deps.spawn_enrich(req.message)
+                            deps.spawn_enrich(msg)
                         except Exception:
                             pass
 
@@ -124,7 +201,7 @@ def create_app(deps: Deps) -> FastAPI:
                         try:
                             tok = await asyncio.wait_for(asyncio.shield(nxt), timeout=8)
                         except asyncio.TimeoutError:
-                            yield _sse("status", stage="generating")
+                            yield _sse("status", stage="reasoning")
                             continue
                         except StopAsyncIteration:
                             break
@@ -134,9 +211,39 @@ def create_app(deps: Deps) -> FastAPI:
 
                     answer = "".join(parts)
                     tr.generation("llm-generation", settings.model_repo, messages, answer)
+
+                    # Suggested follow-up questions (best-effort, non-streaming).
+                    if settings.enable_followups and deps.llm_complete and answer:
+                        try:
+                            fu_msgs = [
+                                {"role": "system", "content": FOLLOWUP_SYS},
+                                {"role": "user", "content": f"Question: {msg}\n\nAnswer: {answer[:1500]}\n\nThree follow-up questions:"},
+                            ]
+                            fu = await deps.llm_complete(fu_msgs, {"max_tokens": 96, "temperature": 0.5, "reasoning": False})
+                            qs = [l.strip(" -•\t0123456789.") for l in fu.splitlines() if l.strip()][:3]
+                            qs = [q for q in qs if len(q) > 8]
+                            if qs:
+                                yield _sse("followups", items=qs)
+                        except Exception:
+                            pass
+
                     yield _sse("done", chars=len(answer))
             except Exception as e:  # surface errors to the client cleanly
                 yield _sse("error", message=str(e))
+            finally:
+                # Analytics (best-effort, never blocks or raises into the stream).
+                try:
+                    await db.log_usage({
+                        "session_id": sess, "user_id": req.user_id, "ip_hash": ip_hash,
+                        "country": country, "query": msg[:1000], "answer_chars": len(answer),
+                        "n_sources": (len(result.chunks) if result else 0),
+                        "coverage": (round(result.coverage, 4) if result else 0.0),
+                        "enriched": (bool(result.enriched) if result else False),
+                        "kb_added": (result.enrichment.get("new_chunks", 0) if result else 0),
+                        "reasoning": req.reasoning, "latency_ms": int((time.time() - t0) * 1000),
+                    })
+                except Exception:
+                    pass
 
         return StreamingResponse(
             gen(),
@@ -144,11 +251,11 @@ def create_app(deps: Deps) -> FastAPI:
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
 
-    # Static frontend (index.html at /, assets under /static).
+    # Static frontend. no-store on index so UI updates aren't stuck in browser cache.
     if FRONTEND_DIR.exists():
         @api.get("/")
         async def index():
-            return FileResponse(FRONTEND_DIR / "index.html")
+            return FileResponse(FRONTEND_DIR / "index.html", headers={"Cache-Control": "no-store"})
 
         api.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
 

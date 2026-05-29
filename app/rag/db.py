@@ -159,3 +159,29 @@ async def kb_stats() -> dict:
     pool = await get_pool()
     row = await pool.fetchrow("SELECT * FROM kb_stats()")
     return dict(row) if row else {"documents": 0, "chunks": 0, "last_ingest": None}
+
+
+# --------------------------------------------------------------------------- #
+# Analytics + feedback
+# --------------------------------------------------------------------------- #
+async def log_usage(e: dict) -> None:
+    pool = await get_pool()
+    await pool.execute(
+        """INSERT INTO usage_events
+             (session_id, user_id, ip_hash, country, query, answer_chars,
+              n_sources, coverage, enriched, kb_added, reasoning, latency_ms)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)""",
+        e.get("session_id"), e.get("user_id"), e.get("ip_hash"), e.get("country"),
+        e.get("query"), e.get("answer_chars"), e.get("n_sources"), e.get("coverage"),
+        e.get("enriched"), e.get("kb_added"), e.get("reasoning"), e.get("latency_ms"),
+    )
+
+
+async def log_feedback(f: dict) -> None:
+    pool = await get_pool()
+    await pool.execute(
+        """INSERT INTO feedback (session_id, user_id, query, rating, trace_id, comment)
+           VALUES ($1,$2,$3,$4,$5,$6)""",
+        f.get("session_id"), f.get("user_id"), f.get("query"),
+        f.get("rating"), f.get("trace_id"), f.get("comment"),
+    )
