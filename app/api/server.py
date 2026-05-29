@@ -109,6 +109,16 @@ class FeatureRequest(BaseModel):
     session_id: Optional[str] = None
 
 
+class TokenToggleRequest(BaseModel):
+    id: int
+    active: bool
+
+
+class TokenCreateRequest(BaseModel):
+    label: Optional[str] = None
+    kind: str = "secondary"
+
+
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
@@ -143,31 +153,81 @@ def _hash_ip(ip: str) -> str:
 
 
 def create_app(deps: Deps) -> FastAPI:
-    api = FastAPI(title="Naija-Petro", version="0.2.0")
+    api = FastAPI(title="Naija-Petro", version="0.3.0")
 
-    # Access gate: when ACCESS_KEY is set, every endpoint except the page, health,
-    # and the key-check requires a matching X-Access-Key header (or ?key=). This
-    # blocks anyone on the internet from making calls without the key.
-    _OPEN_PATHS = ("/", "/healthz", "/auth")
+    # The interface is open to test. Anonymous visitors get settings.free_daily_limit
+    # queries per calendar day; a valid, active access token lifts that limit. The
+    # /admin panel (token management) is guarded by settings.admin_token.
+    def _admin_ok(request: Request) -> bool:
+        tok = request.headers.get("x-admin-token") or request.query_params.get("admin", "")
+        return bool(settings.admin_token) and tok == settings.admin_token
 
-    @api.middleware("http")
-    async def _gate(request: Request, call_next):
-        if settings.access_key:
-            p = request.url.path
-            if not (p in _OPEN_PATHS or p.startswith("/static")):
-                key = request.headers.get("x-access-key") or request.query_params.get("key", "")
-                if key != settings.access_key:
-                    return JSONResponse({"error": "Unauthorized. An access key is required."}, status_code=401)
-        return await call_next(request)
+    def _req_token(request: Request) -> str:
+        return (request.headers.get("x-access-token") or request.query_params.get("token", "")).strip()
 
     @api.get("/healthz")
     async def healthz():
         from app import __version__
-        return {"status": "ok", "version": __version__, "gated": bool(settings.access_key)}
+        return {"status": "ok", "version": __version__, "open": True,
+                "daily_limit": settings.free_daily_limit, "admin": bool(settings.admin_token)}
 
-    @api.get("/auth")
-    async def auth(key: str = ""):
-        return {"ok": bool(settings.access_key) and key == settings.access_key}
+    @api.get("/token/check")
+    async def token_check(token: str = ""):
+        try:
+            return {"valid": await db.token_active(token.strip())}
+        except Exception:
+            return {"valid": False}
+
+    # ----- Admin panel API (guarded by X-Admin-Token) -----
+    @api.get("/admin/api/auth")
+    async def admin_auth(request: Request):
+        return {"ok": _admin_ok(request)}
+
+    @api.get("/admin/api/tokens")
+    async def admin_tokens(request: Request):
+        if not _admin_ok(request):
+            return JSONResponse({"error": "Unauthorized"}, status_code=401)
+        try:
+            return {"tokens": await db.list_tokens()}
+        except Exception as e:
+            return JSONResponse({"error": str(e)}, status_code=503)
+
+    @api.post("/admin/api/tokens/toggle")
+    async def admin_toggle(req: TokenToggleRequest, request: Request):
+        if not _admin_ok(request):
+            return JSONResponse({"error": "Unauthorized"}, status_code=401)
+        try:
+            await db.set_token_active(int(req.id), bool(req.active))
+            return {"ok": True}
+        except Exception as e:
+            return JSONResponse({"error": str(e)}, status_code=503)
+
+    @api.post("/admin/api/tokens/create")
+    async def admin_create(req: TokenCreateRequest, request: Request):
+        if not _admin_ok(request):
+            return JSONResponse({"error": "Unauthorized"}, status_code=401)
+        kind = "primary" if (req.kind or "").lower() == "primary" else "secondary"
+        cap = 3 if kind == "primary" else 7
+        try:
+            counts = await db.count_tokens_by_kind()
+            if counts.get(kind, 0) >= cap:
+                return JSONResponse({"error": f"Limit reached: max {cap} {kind} tokens."}, status_code=400)
+            import secrets as _secrets
+            token = f"np-{'pri' if kind == 'primary' else 'sec'}-{_secrets.token_urlsafe(12)}"
+            label = (req.label or "").strip()[:60] or f"{kind.title()} token"
+            await db.create_token(token, label, kind)
+            return {"ok": True, "token": token, "label": label, "kind": kind}
+        except Exception as e:
+            return JSONResponse({"error": str(e)}, status_code=503)
+
+    @api.get("/admin/api/stats")
+    async def admin_stats(request: Request):
+        if not _admin_ok(request):
+            return JSONResponse({"error": "Unauthorized"}, status_code=401)
+        try:
+            return await db.usage_overview(14)
+        except Exception as e:
+            return JSONResponse({"error": str(e)}, status_code=503)
 
     @api.get("/kb/stats")
     async def kb_stats():
@@ -267,10 +327,6 @@ def create_app(deps: Deps) -> FastAPI:
     @api.post("/chat")
     async def chat(req: ChatRequest, request: Request):
         # --- gates (checked before we start streaming) ---
-        if settings.access_key:
-            key = request.headers.get("x-access-key") or request.query_params.get("key", "")
-            if key != settings.access_key:
-                return JSONResponse({"error": "Unauthorized"}, status_code=401)
         msg = (req.message or "").strip()
         if not msg:
             return JSONResponse({"error": "Empty message"}, status_code=400)
@@ -280,10 +336,31 @@ def create_app(deps: Deps) -> FastAPI:
         ip_hash = _hash_ip(_client_ip(request))
         sess = req.session_id or ip_hash
         country = request.headers.get("cf-ipcountry") or request.headers.get("x-vercel-ip-country")
+
+        # Burst limit (anti-abuse) applies to everyone.
         if not (_rate_ok(f"m:{ip_hash}", settings.rate_limit_max, settings.rate_limit_window_s)
-                and _rate_ok(f"h:{ip_hash}", settings.rate_limit_max_hour, 3600)
-                and _rate_ok(f"m:{sess}", settings.rate_limit_max, settings.rate_limit_window_s)):
-            return JSONResponse({"error": "Rate limit exceeded. Please wait a moment."}, status_code=429)
+                and _rate_ok(f"h:{ip_hash}", settings.rate_limit_max_hour, 3600)):
+            return JSONResponse({"error": "You are sending requests too quickly. Please wait a moment."}, status_code=429)
+
+        # Daily free limit: anonymous visitors get settings.free_daily_limit queries
+        # per calendar day. A valid, active access token lifts the limit.
+        token = _req_token(request)
+        try:
+            has_token = await db.token_active(token) if token else False
+        except Exception:
+            has_token = False
+        if not has_token and settings.free_daily_limit > 0:
+            try:
+                used = await db.daily_ip_count(ip_hash)
+            except Exception:
+                used = 0
+            if used >= settings.free_daily_limit:
+                return JSONResponse(
+                    {"error": f"You have used your {settings.free_daily_limit} free questions for today. "
+                              "Come back tomorrow, or enter an access token to keep going.",
+                     "limit": "daily", "used": used, "max": settings.free_daily_limit},
+                    status_code=429,
+                )
 
         sampling = {
             "temperature": settings.temperature,
@@ -438,6 +515,10 @@ def create_app(deps: Deps) -> FastAPI:
         @api.get("/")
         async def index():
             return FileResponse(FRONTEND_DIR / "index.html", headers={"Cache-Control": "no-store"})
+
+        @api.get("/admin")
+        async def admin_page():
+            return FileResponse(FRONTEND_DIR / "admin.html", headers={"Cache-Control": "no-store"})
 
         api.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
 

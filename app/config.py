@@ -72,9 +72,14 @@ class Settings:
     top_p: float = _f("RAG_TOP_P", 0.9)
 
     # --- Security / limits ---
-    access_key: str = os.environ.get("ACCESS_KEY", "")        # empty = open access
+    # The interface is OPEN to test. Anonymous visitors get `free_daily_limit`
+    # queries per calendar day (UTC); holders of an active access token bypass
+    # that limit. `admin_token` guards the /admin panel where tokens are managed.
+    access_key: str = os.environ.get("ACCESS_KEY", "")        # legacy hard gate; empty = open
+    admin_token: str = os.environ.get("ADMIN_TOKEN", "")      # unlocks the admin panel
+    free_daily_limit: int = _i("FREE_DAILY_LIMIT", 10)        # anonymous queries per day
     max_query_chars: int = _i("MAX_QUERY_CHARS", 2000)
-    rate_limit_max: int = _i("RATE_LIMIT_MAX", 20)            # requests per window
+    rate_limit_max: int = _i("RATE_LIMIT_MAX", 20)            # burst requests per window (anti-abuse)
     rate_limit_window_s: int = _i("RATE_LIMIT_WINDOW_S", 60)
     rate_limit_max_hour: int = _i("RATE_LIMIT_MAX_HOUR", 200)
     ip_salt: str = os.environ.get("IP_SALT", "naija-petro-salt")
