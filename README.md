@@ -2,12 +2,36 @@
 
 # 🛢️ Naija-Petro
 
-**A Nigeria-aware petroleum-engineering AI: fine-tuned Qwen3 models plus a dynamic, citation-grounded RAG assistant with exact engineering calculators.**
+### A Nigeria-aware petroleum-engineering AI
 
-[![Live demo](https://img.shields.io/badge/Live-app-16a34a)](https://peniel-tish--naija-petro.modal.run)
-[![Model 8B](https://img.shields.io/badge/🤗%20Model-naija--petro--8b-yellow)](https://huggingface.co/Shinzmann/naija-petro-8b)
-[![Model 32B](https://img.shields.io/badge/🤗%20Model-naija--petro-yellow)](https://huggingface.co/Shinzmann/naija-petro)
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0)
+Fine-tuned **Qwen3** models plus a dynamic, citation-grounded **RAG** assistant with exact engineering calculators.
+
+<br>
+
+[![Live demo](https://img.shields.io/badge/demo-live-16a34a?style=for-the-badge&logo=rocket&logoColor=white)](https://naija-petro.shinzii.tech)
+[![Model 8B](https://img.shields.io/badge/🤗%20model-naija--petro--8b-yellow?style=for-the-badge)](https://huggingface.co/Shinzmann/naija-petro-8b)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue?style=for-the-badge)](https://www.apache.org/licenses/LICENSE-2.0)
+
+<br>
+
+![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)
+![Modal](https://img.shields.io/badge/Modal-serverless%20GPU-7B3FE4?logo=modal&logoColor=white)
+![vLLM](https://img.shields.io/badge/vLLM-OpenAI%20API-FF6F00)
+![Qwen3](https://img.shields.io/badge/Qwen3-8B%20%2F%2032B-615CED)
+![FastAPI](https://img.shields.io/badge/FastAPI-SSE-009688?logo=fastapi&logoColor=white)
+![Supabase](https://img.shields.io/badge/Supabase-pgvector-3ECF8E?logo=supabase&logoColor=white)
+![Hugging Face](https://img.shields.io/badge/🤗-models%20%2B%20spaces-yellow)
+![Langfuse](https://img.shields.io/badge/Langfuse-tracing-0A0A0A)
+![Tailwind](https://img.shields.io/badge/UI-Tailwind%20%2B%20Alpine-38BDF8?logo=tailwindcss&logoColor=white)
+![Unsloth](https://img.shields.io/badge/Unsloth-QLoRA-FFB300)
+
+[Live app](https://naija-petro.shinzii.tech) ·
+[What it is](#what-this-is) ·
+[Features](#features) ·
+[Models](#models) ·
+[Quick start](#quick-start) ·
+[API](#api) ·
+[Dataset](#dataset)
 
 Built by **Ashinze Emmanuel** · [GitHub](https://github.com/Mystique1337/naija-petro) · [Hugging Face](https://huggingface.co/Shinzmann)
 
@@ -15,13 +39,17 @@ Built by **Ashinze Emmanuel** · [GitHub](https://github.com/Mystique1337/naija-
 
 ---
 
+> [!NOTE]
+> Naija-Petro produces **decision support** for research and education. Validate every figure with qualified
+> engineers and primary sources before any operational decision.
+
 ## What this is
 
 Naija-Petro is a pair of [Qwen3](https://huggingface.co/Qwen) models fine-tuned (QLoRA via [Unsloth](https://github.com/unslothai/unsloth)) on 20,000+ synthetic petroleum-engineering instruction-response pairs, plus the full data pipeline that produced them and a production retrieval-augmented assistant.
 
 The base models learned **general, global** petroleum knowledge (drilling, reservoir, production, completions, EOR, well testing, geoscience). They are strong on fundamentals but weak on **Nigeria-specific** facts: regulation, the Petroleum Industry Act 2021, NUPRC, NMDPRA, NNPC, local fields, and fiscal terms. The RAG layer closes that gap. It fetches authoritative Nigerian sources on demand, converts them to clean markdown, cites them, and grows its own knowledge base as it is used. For numeric questions it calls deterministic calculators so the figures are exact, not estimated.
 
-Live app: **https://peniel-tish--naija-petro.modal.run**
+Live app: **https://naija-petro.shinzii.tech** (also at `https://peniel-tish--naija-petro.modal.run`)
 
 ## Features
 
