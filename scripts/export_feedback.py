@@ -8,7 +8,8 @@ Produces, in the current directory:
                          both an up- and a down-rated answer (for DPO/preference tuning)
 
 This is the data side of the improvement loop: run it periodically, then fine-tune
-the 8B (LoRA/DPO) on the exported files. Reads SUPABASE_DB_URL from .env.
+the 8B (LoRA/DPO) on the exported files. Reads the store over the Supabase REST API
+(SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY + SUPABASE_DB_SCHEMA in .env).
 
     python scripts/export_feedback.py
 """
@@ -20,30 +21,65 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
-import psycopg
+import httpx
 
-URL = (os.environ.get("SUPABASE_DB_URL") or "").strip().strip('"')
+URL = (os.environ.get("SUPABASE_URL") or "").strip().strip('"').rstrip("/")
+KEY = (
+    os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+    or os.environ.get("SUPABASE_SERVICE_KEY")
+    or ""
+).strip().strip('"')
 SCHEMA = (os.environ.get("SUPABASE_DB_SCHEMA") or "naija_petro").strip().strip('"')
-DB_OPTS = f"-c search_path={SCHEMA},public" if SCHEMA and SCHEMA != "public" else "-c search_path=public"
+PAGE = 1000  # PostgREST caps rows per response (PGRST_DB_MAX_ROWS); paginate.
+
+
+def fetch_feedback() -> list[dict]:
+    """All rated rows with an answer, oldest first, paged over the REST API."""
+    headers = {
+        "apikey": KEY,
+        "Authorization": f"Bearer {KEY}",
+        "Accept-Profile": SCHEMA,
+    }
+    rows: list[dict] = []
+    offset = 0
+    with httpx.Client(base_url=f"{URL}/rest/v1", timeout=60) as c:
+        while True:
+            r = c.get(
+                "/feedback",
+                params={
+                    "select": "query,answer,rating,comment,sources,created_at",
+                    "answer": "not.is.null",
+                    "order": "created_at.asc",
+                    "limit": PAGE,
+                    "offset": offset,
+                },
+                headers=headers,
+            )
+            r.raise_for_status()
+            batch = r.json()
+            rows.extend(batch)
+            if len(batch) < PAGE:
+                break
+            offset += PAGE
+    return rows
 
 
 def main() -> int:
-    if not URL:
-        print("SUPABASE_DB_URL not set in .env")
+    if not URL or not KEY:
+        print("SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY not set in .env")
         return 1
-    with psycopg.connect(URL, connect_timeout=20, options=DB_OPTS) as c, c.cursor() as cur:
-        cur.execute(
-            "SELECT query, answer, rating, comment, sources, created_at "
-            "FROM feedback WHERE answer IS NOT NULL ORDER BY created_at"
-        )
-        rows = cur.fetchall()
+    rows = fetch_feedback()
 
     by_query = defaultdict(lambda: {"chosen": [], "rejected": []})
     n_sft = 0
     with open("feedback_raw.jsonl", "w") as raw, open("feedback_sft.jsonl", "w") as sft:
-        for query, answer, rating, comment, sources, ts in rows:
+        for row in rows:
+            query = row.get("query")
+            answer = row.get("answer")
+            rating = row.get("rating")
             raw.write(json.dumps({"query": query, "answer": answer, "rating": rating,
-                                  "comment": comment, "sources": sources, "ts": str(ts)}) + "\n")
+                                  "comment": row.get("comment"), "sources": row.get("sources"),
+                                  "ts": str(row.get("created_at"))}) + "\n")
             if rating and rating >= 1:
                 sft.write(json.dumps({"instruction": query, "input": "", "output": answer}) + "\n")
                 n_sft += 1
