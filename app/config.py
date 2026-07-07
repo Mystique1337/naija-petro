@@ -42,6 +42,19 @@ class Settings:
     rerank_model: str = os.environ.get("RERANK_MODEL", "BAAI/bge-reranker-v2-m3")
 
     # --- Data stores / services ---
+    # The RAG store lives in a self-hosted Supabase and is reached over the REST
+    # (PostgREST) API, which is publicly reachable (works from Modal) — see
+    # app/rag/db.py. `supabase_db_schema` is the Postgres schema the tables and
+    # functions live in (each app gets its own on a shared instance).
+    supabase_url: str = os.environ.get("SUPABASE_URL", "").rstrip("/")
+    supabase_service_key: str = (
+        os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
+        or os.environ.get("SUPABASE_SERVICE_KEY", "")
+    )
+    supabase_anon_key: str = os.environ.get("SUPABASE_ANON_KEY", "")
+    supabase_db_schema: str = os.environ.get("SUPABASE_DB_SCHEMA", "naija_petro")
+    # Optional direct Postgres DSN (used only by the offline admin scripts in
+    # scripts/, not by the running app). Left blank in normal REST operation.
     supabase_db_url: str = os.environ.get("SUPABASE_DB_URL", "")
     tavily_api_key: str = os.environ.get("TAVILY_API_KEY", "")
 

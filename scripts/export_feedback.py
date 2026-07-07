@@ -23,13 +23,15 @@ load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 import psycopg
 
 URL = (os.environ.get("SUPABASE_DB_URL") or "").strip().strip('"')
+SCHEMA = (os.environ.get("SUPABASE_DB_SCHEMA") or "naija_petro").strip().strip('"')
+DB_OPTS = f"-c search_path={SCHEMA},public" if SCHEMA and SCHEMA != "public" else "-c search_path=public"
 
 
 def main() -> int:
     if not URL:
         print("SUPABASE_DB_URL not set in .env")
         return 1
-    with psycopg.connect(URL, connect_timeout=20) as c, c.cursor() as cur:
+    with psycopg.connect(URL, connect_timeout=20, options=DB_OPTS) as c, c.cursor() as cur:
         cur.execute(
             "SELECT query, answer, rating, comment, sources, created_at "
             "FROM feedback WHERE answer IS NOT NULL ORDER BY created_at"

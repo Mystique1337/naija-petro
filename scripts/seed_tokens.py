@@ -15,6 +15,9 @@ load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 import psycopg
 
 URL = (os.environ.get("SUPABASE_DB_URL") or "").strip().strip('"')
+SCHEMA = (os.environ.get("SUPABASE_DB_SCHEMA") or "naija_petro").strip().strip('"')
+# Prepend the app schema (e.g. naija_petro on a shared self-hosted Supabase).
+DB_OPTS = f"-c search_path={SCHEMA},public" if SCHEMA and SCHEMA != "public" else "-c search_path=public"
 
 
 def gen(prefix: str) -> str:
@@ -25,7 +28,7 @@ def main() -> int:
     if not URL:
         print("SUPABASE_DB_URL not set in .env")
         return 1
-    with psycopg.connect(URL, connect_timeout=20) as c:
+    with psycopg.connect(URL, connect_timeout=20, options=DB_OPTS) as c:
         c.autocommit = True
         with c.cursor() as cur:
             cur.execute(
