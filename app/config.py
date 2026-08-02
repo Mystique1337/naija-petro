@@ -6,7 +6,7 @@ local dev they come from a .env loaded by the entrypoint.
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 def _b(name: str, default: bool) -> bool:
@@ -97,6 +97,15 @@ class Settings:
     rate_limit_max_hour: int = _i("RATE_LIMIT_MAX_HOUR", 200)
     ip_salt: str = os.environ.get("IP_SALT", "naija-petro-salt")
     enable_followups: bool = _b("ENABLE_FOLLOWUPS", True)
+    # Allow /chat and the UI to pre-boot the GPU. Costs an L4 that then idles for
+    # llm_scaledown_window seconds, but removes the cold start from the wait.
+    # Inside /chat this is free (that turn boots the GPU anyway); the /warm
+    # endpoint is the one that can spend without a question being asked, so it is
+    # capped both per IP and globally. The global cap bounds the worst case even
+    # if someone rotates IPs: at most this many boots per hour.
+    enable_warm: bool = _b("ENABLE_WARM", True)
+    warm_max_per_hour: int = _i("WARM_MAX_PER_HOUR", 12)
+    warm_per_ip_window_s: int = _i("WARM_PER_IP_WINDOW_S", 600)
 
     @property
     def langfuse_enabled(self) -> bool:

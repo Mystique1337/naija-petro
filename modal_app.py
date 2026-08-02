@@ -126,6 +126,16 @@ class LLMService:
             self._proc.terminate()
 
     @modal.method()
+    def warm(self) -> bool:
+        """Readiness ping used to pre-boot the container.
+
+        @modal.enter() already blocks until vLLM answers /health, so merely being
+        invoked forces the cold start and the weight load. The body is trivial:
+        reaching it means the model is ready to serve.
+        """
+        return True
+
+    @modal.method()
     async def chat_stream(self, messages: list[dict], sampling: dict | None = None):
         s = sampling or {}
         # reasoning on -> Qwen3 emits <think>...</think> before the answer (the UI
@@ -220,6 +230,15 @@ def _spawn_enrich(query: str) -> None:
     enrich.spawn(query)
 
 
+def _warm_llm() -> None:
+    """Start the GPU container without waiting for it.
+
+    spawn() returns as soon as the input is queued, so the caller pays a single
+    control-plane round trip instead of the multi-minute cold start it triggers.
+    """
+    LLMService().warm.spawn()
+
+
 # --------------------------------------------------------------------------- #
 # Background enrichment: the self-updating step
 # --------------------------------------------------------------------------- #
@@ -240,7 +259,8 @@ def fastapi_app():
     from app.api.server import Deps, create_app
 
     deps = Deps(embed=_embed, llm_stream=_llm_stream, rerank=_rerank,
-                spawn_enrich=_spawn_enrich, llm_complete=_llm_complete)
+                spawn_enrich=_spawn_enrich, llm_complete=_llm_complete,
+                warm_llm=_warm_llm)
     return create_app(deps)
 
 

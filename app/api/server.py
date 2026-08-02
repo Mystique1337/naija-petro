@@ -71,6 +71,7 @@ class Deps:
     rerank: Optional[Callable[[str, list[str]], Awaitable[list[float]]]] = None
     spawn_enrich: Optional[Callable[[str], None]] = None
     llm_complete: Optional[Callable[[list[dict], dict], Awaitable[str]]] = None
+    warm_llm: Optional[Callable[[], None]] = None      # pre-boot the GPU, returns at once
 
 
 class ChatRequest(BaseModel):
@@ -151,6 +152,22 @@ async def _pump_tokens(llm_stream, messages, sampling):
     yield ("truncated", truncated)
 
 
+# Strong refs to in-flight warm-ups: a bare task can be garbage collected mid-run.
+_warm_tasks: set = set()
+
+
+async def _run_warm(warm_llm) -> None:
+    """Spawn the GPU pre-boot off the event loop, swallowing everything.
+
+    The spawn is a blocking control-plane call, so it goes through a thread; a
+    warm-up is a pure optimisation and must never slow down or fail a request.
+    """
+    try:
+        await asyncio.to_thread(warm_llm)
+    except Exception:
+        pass
+
+
 # --- simple in-memory rate limiter (per web container) ---
 _hits: dict = defaultdict(deque)
 
@@ -189,6 +206,44 @@ def create_app(deps: Deps) -> FastAPI:
 
     def _req_token(request: Request) -> str:
         return (request.headers.get("x-access-token") or request.query_params.get("token", "")).strip()
+
+    def _fire_warm() -> bool:
+        """Trigger a GPU pre-boot, never blocking and never raising. Returns
+        whether a warm-up was actually fired.
+        """
+        if not settings.enable_warm or not deps.warm_llm:
+            return False
+        try:
+            task = asyncio.ensure_future(_run_warm(deps.warm_llm))
+            _warm_tasks.add(task)
+            task.add_done_callback(_warm_tasks.discard)
+        except Exception:
+            return False
+        return True
+
+    @api.api_route("/warm", methods=["GET", "POST"])
+    async def warm(request: Request):
+        """Boot the GPU ahead of a question so the cold start is not in the wait.
+
+        Fire-and-forget: it never touches the GPU response and never raises.
+
+        This is the only path that can start a GPU without a question being
+        asked, so it is capped twice: once per IP, and once globally per hour so
+        rotating IPs cannot hold an L4 alive indefinitely. Every trigger keeps
+        the GPU billing for at least LLM_SCALEDOWN_WINDOW seconds.
+        """
+        try:
+            if not settings.enable_warm:
+                return {"warming": False}
+            # One boot per visitor per window: repeat calls add nothing while the
+            # container is already warm, they only extend the idle bill.
+            if not _rate_ok(f"w:{_hash_ip(_client_ip(request))}", 1, settings.warm_per_ip_window_s):
+                return {"warming": False}
+            if not _rate_ok("w:global", settings.warm_max_per_hour, 3600):
+                return {"warming": False}
+            return {"warming": _fire_warm()}
+        except Exception:
+            return {"warming": False}
 
     @api.get("/healthz")
     async def healthz():
@@ -435,6 +490,10 @@ def create_app(deps: Deps) -> FastAPI:
                 with obs.trace("chat", session_id=sess, user_id=req.user_id, input=msg) as tr:
                     rerank_fn = deps.rerank if (settings.enable_rerank and deps.rerank) else None
 
+                    # Boot the GPU now, not after retrieval: the weights load while
+                    # sources are searched instead of strictly afterwards.
+                    _fire_warm()
+
                     # Retrieve, heartbeating while we wait (Encoders may be cold).
                     rtask = asyncio.ensure_future(retrieve(msg, deps.embed, rerank_fn))
                     while True:
@@ -490,10 +549,13 @@ def create_app(deps: Deps) -> FastAPI:
                                 res = run_tool(obj["tool"], obj.get("args", {}))
                                 if "error" not in res:
                                     yield _sse("tool", name=obj["tool"], args=obj.get("args", {}), result=res)
+                                    # Plot points go to the UI but never into the prompt:
+                                    # a "series" can be dozens of values of pure context bloat.
+                                    lean = {k: v for k, v in res.items() if k != "series"}
                                     note = (
                                         "A verified engineering calculator has already computed the exact result "
                                         "for this question:\n"
-                                        f"{obj['tool']}({json.dumps(obj.get('args', {}))}) = {json.dumps(res)}\n"
+                                        f"{obj['tool']}({json.dumps(obj.get('args', {}))}) = {json.dumps(lean)}\n"
                                         "Report these exact figures as the answer. You may show the governing "
                                         "formula and explain the inputs, but state the verified numeric result "
                                         "above verbatim and do NOT redo the arithmetic or produce a different "
@@ -517,6 +579,10 @@ def create_app(deps: Deps) -> FastAPI:
                     answer = "".join(parts)
                     tr.generation("llm-generation", settings.model_repo, messages, answer)
 
+                    # Close the answer first: follow-ups need another generation and
+                    # the user should not watch a finished answer wait on it.
+                    yield _sse("done", chars=len(answer), truncated=truncated)
+
                     # Suggested follow-up questions (best-effort, non-streaming).
                     if settings.enable_followups and deps.llm_complete and answer:
                         try:
@@ -531,8 +597,6 @@ def create_app(deps: Deps) -> FastAPI:
                                 yield _sse("followups", items=qs)
                         except Exception:
                             pass
-
-                    yield _sse("done", chars=len(answer), truncated=truncated)
             except Exception as e:  # surface errors to the client cleanly
                 yield _sse("error", message=str(e))
             finally:
