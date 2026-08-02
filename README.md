@@ -64,6 +64,31 @@ Live app: **https://naija-petro.shinzii.tech** (also at `https://peniel-tish--na
 - **Usage analytics** in Supabase and **Langfuse** tracing of every turn.
 - **Cost controlled.** One GPU only (capped), CPU embeddings, fast scale-down, scale to zero when idle.
 
+## Try it
+
+Open the [live app](https://naija-petro.shinzii.tech) and ask:
+
+**Exact engineering maths** (the model picks a calculator, the figure is computed, not estimated):
+- `Our OML 58 well came online at 2400 bopd and is declining at 0.22 per year with a b exponent of 0.7. Calculate the rate after 1.5 years.` gives 1783.5 bopd plus a decline curve.
+- `During a production test the well flowed 620 bopd at 1850 psi with average reservoir pressure of 3100 psi. Compute the AOF and the rate if we draw down to 1000 psi.` gives an AOF of 1040.7 and an IPR curve.
+- `What is the hydrostatic pressure of a 13.2 ppg mud column at 12500 ft TVD?` gives 8580 psi.
+
+**Nigeria-specific knowledge** (answered from retrieved regulatory sources, with citations):
+- `What does NUPRC regulate, and how does it differ from NMDPRA?`
+- `How are host community development trusts funded under the PIA 2021, and who administers them?`
+- `Summarise the upstream fiscal terms under Nigeria's PIA 2021.`
+
+**Engineering depth:**
+- `Derive the material balance equation for an undersaturated oil reservoir and state every assumption.`
+- `Screening criteria for CO2 EOR in Niger Delta reservoirs?`
+
+**Does it make things up?**
+- `What does the Nigerian Petroleum Industry Act of 2019 say about royalties?` There is no 2019 act, the PIA is 2021, and a good answer corrects the premise instead of inventing law.
+
+The first question after a quiet spell cold-starts the GPU and takes a few minutes. Typing a
+dozen characters starts the warm-up in the background, and the calculator menu (🧮) runs
+instantly without touching the model at all.
+
 ## Models
 
 | Variant | Base | Use case | Links |
