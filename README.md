@@ -195,12 +195,44 @@ before the model ever sees them.
 The embedding model must be `nomic-embed-text-v1.5` at 768 dimensions to match the stored
 vectors. A mismatch is reported loudly at first use rather than silently returning nonsense.
 
+### Read-only or writing
+
+Local runs are **read-only by default**: retrieval, knowledge-base reads and history reads
+work normally, but analytics, saved conversations, feedback, subscribers, feature requests
+and document ingestion are all no-ops. Nothing a local session does can reach the live app.
+
+`--write` turns the whole app on, including **upload, saved history, feedback and live
+ingestion**. Where those writes land depends on `SUPABASE_DB_SCHEMA`:
+
+```bash
+# Fully working locally, writing into the SAME schema the deployed app uses.
+# Uploads and history appear in the live app, and local queries count in its usage numbers.
+python local_app.py --write
+
+# Fully working locally, writing into a separate schema. Production is untouched.
+SUPABASE_DB_SCHEMA=naija_petro_dev python local_app.py --write
+```
+
+The startup summary always states which of the three modes you are in, and warns when you
+are writing into the production schema.
+
+#### Setting up an isolated development schema (once)
+
+```bash
+sed 's/naija_petro/naija_petro_dev/g' supabase/schema.sql > /tmp/dev_schema.sql
+```
+
+Run that file in the Supabase Studio SQL editor, then add `naija_petro_dev` to the exposed
+schemas in Project Settings > API so PostgREST can see it. The schema file pins its
+function `search_path` from `current_schema()`, so the rename is all that is needed. The
+development knowledge base starts empty: seed it with `python scripts/seed_kb.py` or just
+let a few queries enrich it.
+
 Notes:
-- It loads the repo `.env` and uses the **same Supabase over the REST API** as the deployed app, so there is no local database to run and no schema to apply. Without `SUPABASE_URL` the UI still loads, but retrieval and history fail; the startup summary says so.
-- **Local runs are read-only by default and cannot affect the live app.** Retrieval, knowledge-base reads and history reads work normally, but analytics, saved conversations, feedback, subscribers, feature requests and document ingestion are all no-ops. A local session never appears in production usage numbers and never adds documents to the live store. The startup summary states which mode you are in.
-- Pass `--write` when you deliberately want a local run to persist to the shared store. `--fake-embed` still blocks ingestion even then, because hashed placeholder vectors must never be written.
+- It loads the repo `.env` and uses the **same Supabase over the REST API** as the deployed app, so there is no local database to run. Without `SUPABASE_URL` the UI still loads, but retrieval and history fail; the startup summary says so.
+- `--fake-embed` blocks ingestion even under `--write`, because hashed placeholder vectors must never be written to any store.
 - Any OpenAI-compatible server works: point `LOCAL_LLM_BASE_URL` at llama.cpp, LM Studio, or a local vLLM instead of Ollama. The 32B GGUF works the same way if you have the memory for it.
-- The first real query downloads `nomic-embed-text-v1.5` (roughly 550 MB) and runs it on CPU, so it is slow once and fast afterwards. `--fake-embed` skips that entirely.
+- Without `LOCAL_EMBED_MODEL`, the first real query downloads `nomic-embed-text-v1.5` (roughly 550 MB) and runs it on CPU. `--fake-embed` skips that entirely.
 
 ## Configuration
 
