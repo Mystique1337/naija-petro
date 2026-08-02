@@ -16,8 +16,12 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING
 
 from app.config import settings
+
+if TYPE_CHECKING:              # httpx is imported lazily at first use below
+    import httpx
 
 _client: "httpx.AsyncClient | None" = None
 _lock = asyncio.Lock()
