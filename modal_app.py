@@ -41,8 +41,15 @@ VLLM_PORT = 8000
 
 
 def _strip_dashes(text: str) -> str:
-    """Remove em/en-dashes from model output (user preference)."""
-    return text.replace("—", "-").replace("–", "-")
+    """Normalise unicode dashes in model output to a plain hyphen (user preference).
+
+    Covers the em-dash and en-dash, plus the unicode hyphen and non-breaking hyphen
+    that Qwen emits inside things like "well-site" and "Section 43-56", which render
+    inconsistently across fonts.
+    """
+    for ch in ("—", "–", "‐", "‑"):
+        text = text.replace(ch, "-")
+    return text
 
 # --------------------------------------------------------------------------- #
 # Images
