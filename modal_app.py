@@ -1,4 +1,4 @@
-"""Modal deployment for Naija-Petro — the single entrypoint that wires everything.
+"""Modal deployment for Naija-Petro: the single entrypoint that wires everything.
 
     modal serve  modal_app.py        # local dev (hot-reload, ephemeral URL)
     modal deploy modal_app.py        # production
@@ -78,7 +78,7 @@ web_image = (
 
 
 # --------------------------------------------------------------------------- #
-# LLM — vLLM OpenAI-compatible server (localhost inside the GPU container)
+# LLM: vLLM OpenAI-compatible server (localhost inside the GPU container)
 # --------------------------------------------------------------------------- #
 @app.cls(
     image=vllm_image,
@@ -165,7 +165,7 @@ class LLMService:
 
 
 # --------------------------------------------------------------------------- #
-# Encoders — embeddings + reranker
+# Encoders: embeddings + reranker
 # --------------------------------------------------------------------------- #
 @app.cls(
     image=encoders_image,
@@ -221,7 +221,7 @@ def _spawn_enrich(query: str) -> None:
 
 
 # --------------------------------------------------------------------------- #
-# Background enrichment — the self-updating step
+# Background enrichment: the self-updating step
 # --------------------------------------------------------------------------- #
 @app.function(image=web_image, secrets=secrets, timeout=10 * 60)
 async def enrich(query: str) -> dict:

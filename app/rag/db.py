@@ -66,7 +66,7 @@ async def close_pool() -> None:  # name kept for backwards compatibility
 
 
 def _vec(embedding: list[float]) -> str:
-    """pgvector text literal — PostgREST casts it to vector on the far side."""
+    """pgvector text literal: PostgREST casts it to vector on the far side."""
     return "[" + ",".join(str(x) for x in embedding) + "]"
 
 

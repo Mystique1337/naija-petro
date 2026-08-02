@@ -1,4 +1,4 @@
-"""Retrieval orchestration — the heart of the dynamic RAG.
+"""Retrieval orchestration: the heart of the dynamic RAG.
 
     embed query → hybrid search → assess coverage → (if weak) fetch live &
     re-retrieve → rerank → top-k cited chunks.

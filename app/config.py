@@ -43,7 +43,7 @@ class Settings:
 
     # --- Data stores / services ---
     # The RAG store lives in a self-hosted Supabase and is reached over the REST
-    # (PostgREST) API, which is publicly reachable (works from Modal) — see
+    # (PostgREST) API, which is publicly reachable (works from Modal), see
     # app/rag/db.py. `supabase_db_schema` is the Postgres schema the tables and
     # functions live in (each app gets its own on a shared instance).
     supabase_url: str = os.environ.get("SUPABASE_URL", "").rstrip("/")

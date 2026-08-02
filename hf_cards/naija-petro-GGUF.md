@@ -15,7 +15,7 @@ tags:
 - quantized
 ---
 
-# Naija-Petro (32B) — GGUF
+# Naija-Petro (32B) GGUF
 
 GGUF quantizations of [`Shinzmann/naija-petro`](https://huggingface.co/Shinzmann/naija-petro) (the 32B variant) for inference with [llama.cpp](https://github.com/ggerganov/llama.cpp), [Ollama](https://ollama.com), LM Studio, and compatible runtimes.
 

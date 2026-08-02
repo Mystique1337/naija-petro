@@ -17,7 +17,7 @@ tags:
 
 # Naija-Petro 8B
 
-**Naija-Petro 8B** is a [Qwen3-8B](https://huggingface.co/Qwen/Qwen3-8B) model fine-tuned (QLoRA, [Unsloth](https://github.com/unslothai/unsloth)) on ~20,000 synthetic petroleum-engineering instruction–response pairs. It is the lightweight, fast-inference variant of the Naija-Petro family and the model served behind the project's retrieval-augmented assistant.
+**Naija-Petro 8B** is a [Qwen3-8B](https://huggingface.co/Qwen/Qwen3-8B) model fine-tuned (QLoRA, [Unsloth](https://github.com/unslothai/unsloth)) on ~20,000 synthetic petroleum-engineering instruction-response pairs. It is the lightweight, fast-inference variant of the Naija-Petro family and the model served behind the project's retrieval-augmented assistant.
 
 > ⚠️ The base training data is **general/global** petroleum knowledge. For Nigeria-specific facts (regulation, the PIA 2021, NUPRC/NMDPRA/NNPC), pair this model with the [Naija-Petro RAG system](https://github.com/Mystique1337/naija-petro), which grounds answers in verifiable Nigerian sources.
 
@@ -28,7 +28,7 @@ tags:
 - **Language:** English
 - **License:** Apache-2.0 (inherited from Qwen3-8B)
 - **Finetuned from:** [`Qwen/Qwen3-8B`](https://huggingface.co/Qwen/Qwen3-8B)
-- **Domain:** Petroleum engineering — drilling, reservoir, production, completions, EOR, well testing, petroleum geoscience
+- **Domain:** Petroleum engineering covering drilling, reservoir, production, completions, EOR, well testing, petroleum geoscience
 
 ### Model sources
 - **Repository:** https://github.com/Mystique1337/naija-petro
@@ -38,7 +38,7 @@ tags:
 ## Uses
 
 ### Direct use
-Technical question answering and explanation across petroleum-engineering subdomains: concepts, equations and derivations, workflow guidance, and terminology — as a study aid and engineering decision-support tool.
+Technical question answering and explanation across petroleum-engineering subdomains: concepts, equations and derivations, workflow guidance, and terminology, as a study aid and engineering decision-support tool.
 
 ### Downstream use
 Backbone for retrieval-augmented assistants (see the project repo), further domain fine-tuning, or distillation.
@@ -85,7 +85,7 @@ ollama run hf.co/Shinzmann/naija-petro-8b-GGUF:Q4_K_M
 ## Training details
 
 ### Data
-~20,000 instruction–response pairs generated with **NVIDIA NeMo Data Designer** from a scraped, de-duplicated petroleum corpus (arXiv, Semantic Scholar, OpenAlex, Crossref, DOE/OSTI, PetroWiki, the SLB glossary, EIA, and more), with an LLM-as-judge quality-scoring pass. Pipeline and EDA are in the [project notebooks](https://github.com/Mystique1337/naija-petro/tree/main/notebooks).
+~20,000 instruction-response pairs generated with **NVIDIA NeMo Data Designer** from a scraped, de-duplicated petroleum corpus (arXiv, Semantic Scholar, OpenAlex, Crossref, DOE/OSTI, PetroWiki, the SLB glossary, EIA, and more), with an LLM-as-judge quality-scoring pass. Pipeline and EDA are in the [project notebooks](https://github.com/Mystique1337/naija-petro/tree/main/notebooks).
 
 ### Procedure
 QLoRA (4-bit NF4) with Unsloth on a single A100 80GB.

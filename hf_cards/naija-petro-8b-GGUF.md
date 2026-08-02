@@ -15,7 +15,7 @@ tags:
 - quantized
 ---
 
-# Naija-Petro 8B — GGUF
+# Naija-Petro 8B GGUF
 
 GGUF quantizations of [`Shinzmann/naija-petro-8b`](https://huggingface.co/Shinzmann/naija-petro-8b) for CPU/edge inference with [llama.cpp](https://github.com/ggerganov/llama.cpp), [Ollama](https://ollama.com), LM Studio, and compatible runtimes.
 
@@ -25,7 +25,7 @@ See the full [model card](https://huggingface.co/Shinzmann/naija-petro-8b) for t
 
 | File suffix | Method | Notes |
 |---|---|---|
-| `Q4_K_M` | 4-bit (k-quant, medium) | Best size/quality trade-off — recommended default |
+| `Q4_K_M` | 4-bit (k-quant, medium) | Best size/quality trade-off, recommended default |
 | `Q8_0`   | 8-bit | Near-lossless; larger and slower |
 
 ## Usage

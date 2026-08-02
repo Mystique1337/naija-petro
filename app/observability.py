@@ -102,7 +102,7 @@ def trace(name: str, *, session_id=None, user_id=None, input=None, metadata=None
                 pass
         handle = _Span(span)
     except Exception:
-        # Setup failed — degrade to no-op but still yield exactly once.
+        # Setup failed, degrade to no-op but still yield exactly once.
         try:
             stack.close()
         except Exception:

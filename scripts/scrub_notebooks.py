@@ -11,7 +11,7 @@ What it does (idempotent):
     (hf_*, sk-*, nvapi-*, ghp_/gho_*, AWS AKIA*, generic `KEY = "literal"`)
     and redacts them.
 
-Code and outputs are otherwise left untouched — only sensitive substrings
+Code and outputs are otherwise left untouched, only sensitive substrings
 and the one S2 assignment line change.
 
 Usage:

@@ -1,7 +1,7 @@
 """FastAPI front door for the Naija-Petro RAG assistant.
 
 `create_app(deps)` builds the app with GPU-backed callables injected, so this
-module never imports Modal — keeping it cycle-free and unit-testable with a stub.
+module never imports Modal, keeping it cycle-free and unit-testable with a stub.
 """
 from __future__ import annotations
 

@@ -10,7 +10,7 @@ CITATION_INSTRUCTIONS = (
     "facts. Cite sources inline as [1], [2], etc. immediately after the claim they support. "
     "Prefer official/regulatory sources (NUPRC, NMDPRA, NNPC, NEITI, the PIA 2021) over news. "
     "If the sources do not cover something, answer from your general petroleum-engineering "
-    "knowledge and say so explicitly — never invent a citation. End with a '## Sources' list."
+    "knowledge and say so explicitly, never invent a citation. End with a '## Sources' list."
 )
 
 

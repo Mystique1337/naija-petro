@@ -9,7 +9,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 ENV_FILE="$ROOT/.env"
 
 if [[ ! -f "$ENV_FILE" ]]; then
-  echo "No .env found at $ENV_FILE — copy .env.example to .env and fill it in." >&2
+  echo "No .env found at $ENV_FILE. Copy .env.example to .env and fill it in." >&2
   exit 1
 fi
 

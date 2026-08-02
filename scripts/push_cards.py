@@ -50,7 +50,7 @@ def main() -> int:
     print(f"Cards directory: {CARDS_DIR}")
     for path, repo in plan:
         print(f"  {path.name:24s} -> https://huggingface.co/{repo}")
-    print("  (dataset_card.md is not pushed — no dataset repo yet)\n")
+    print("  (dataset_card.md is not pushed, no dataset repo yet)\n")
 
     if dry:
         print("Dry run OK. Re-run without --dry-run to upload.")

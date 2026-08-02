@@ -1,8 +1,8 @@
 """Embedding + reranking model wrappers.
 
 Pure (no Modal): instantiated inside the Modal GPU container (see app/modal_app.py
-`Encoders`). nomic-embed-text-v1.5 needs task prefixes — `search_query:` for queries
-and `search_document:` for stored passages — and L2-normalised vectors for cosine.
+`Encoders`). nomic-embed-text-v1.5 needs task prefixes, `search_query:` for queries
+and `search_document:` for stored passages, and L2-normalised vectors for cosine.
 """
 from __future__ import annotations
 
