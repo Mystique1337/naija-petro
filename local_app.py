@@ -45,17 +45,28 @@ if os.environ.get("FRONTEND_DIR") and not Path(os.environ["FRONTEND_DIR"]).exist
 from app.config import STREAM_TRUNCATED, settings  # noqa: E402  (must follow load_dotenv)
 
 # Ollama's OpenAI-compatible endpoint, and the published GGUF build of the 8B.
+# For LM Studio use http://localhost:1234/v1 and whatever model id it lists.
 LLM_BASE_URL = os.environ.get("LOCAL_LLM_BASE_URL", "http://localhost:11434/v1")
 LLM_MODEL = os.environ.get("LOCAL_LLM_MODEL", "hf.co/Shinzmann/naija-petro-8b-GGUF:Q4_K_M")
 LLM_API_KEY = os.environ.get("LOCAL_LLM_API_KEY", "local")
 
-# Written as code points, not literals, so no em/en-dash character appears in this file.
-EM_DASH, EN_DASH = chr(0x2014), chr(0x2013)
+# Embeddings can come from the same OpenAI-compatible server rather than a second
+# local copy of the model. Set LOCAL_EMBED_MODEL to the server's embedding model id
+# (LM Studio ships nomic-embed-text-v1.5, the exact model this project uses) and the
+# 550 MB sentence-transformers download is skipped entirely.
+EMBED_MODEL_API = os.environ.get("LOCAL_EMBED_MODEL", "")
+EMBED_BASE_URL = os.environ.get("LOCAL_EMBED_BASE_URL", "") or LLM_BASE_URL
+
+# Written as code points, not literals, so no dash character appears in this file.
+# em-dash, en-dash, unicode hyphen, non-breaking hyphen.
+UNICODE_DASHES = (chr(0x2014), chr(0x2013), chr(0x2010), chr(0x2011))
 
 
 def _strip_dashes(text: str) -> str:
-    """Remove em/en-dashes from model output (mirrors modal_app.LLMService)."""
-    return text.replace(EM_DASH, "-").replace(EN_DASH, "-")
+    """Normalise unicode dashes to a plain hyphen (mirrors modal_app.LLMService)."""
+    for ch in UNICODE_DASHES:
+        text = text.replace(ch, "-")
+    return text
 
 
 def _env_flag(name: str) -> bool:
@@ -138,9 +149,55 @@ async def _get_embedder():
 
 
 async def embed(texts: list[str], mode: str = "document") -> list[list[float]]:
+    if EMBED_MODEL_API:
+        return await api_embed(texts, mode)
     model = await _get_embedder()
     # encode() is blocking CPU work: keep it off the event loop.
     return await asyncio.to_thread(model.encode, texts, mode)
+
+
+_embed_client = None
+_embed_dim_checked = False
+
+
+async def api_embed(texts: list[str], mode: str = "document") -> list[list[float]]:
+    """Embed through an OpenAI-compatible /v1/embeddings endpoint.
+
+    nomic-embed-text-v1.5 is asymmetric: the task prefix decides whether a text is
+    treated as a query or a stored passage, and the server does not add it for us,
+    so it is applied here exactly as app/rag/embeddings.py does. Vectors are
+    L2-normalised for parity with the stored ones; pgvector's cosine operator does
+    not need it, but it keeps coverage scores comparable with production.
+    """
+    global _embed_client, _embed_dim_checked
+    import math
+
+    from app.rag.embeddings import DOC_PREFIX, QUERY_PREFIX
+
+    if _embed_client is None:
+        from openai import AsyncOpenAI
+
+        _embed_client = AsyncOpenAI(base_url=EMBED_BASE_URL, api_key=LLM_API_KEY)
+
+    prefix = QUERY_PREFIX if mode == "query" else DOC_PREFIX
+    resp = await _embed_client.embeddings.create(
+        model=EMBED_MODEL_API, input=[prefix + (t or "") for t in texts]
+    )
+    vectors = [list(d.embedding) for d in sorted(resp.data, key=lambda d: d.index)]
+
+    if vectors and not _embed_dim_checked:
+        _embed_dim_checked = True
+        got = len(vectors[0])
+        if got != settings.embed_dim:
+            print(f"  ! embedding dimension mismatch: {EMBED_MODEL_API} returned {got}, "
+                  f"the store expects {settings.embed_dim}. Retrieval will fail. "
+                  "Use a matching model or unset LOCAL_EMBED_MODEL.", flush=True)
+
+    out = []
+    for v in vectors:
+        norm = math.sqrt(sum(x * x for x in v)) or 1.0
+        out.append([x / norm for x in v])
+    return out
 
 
 async def _get_reranker():
@@ -336,6 +393,8 @@ def _print_summary(args: argparse.Namespace, fake_llm: bool, fake_embed_mode: bo
     llm = "canned answer (--fake-llm)" if fake_llm else f"{LLM_MODEL} via {LLM_BASE_URL}"
     if fake_embed_mode:
         emb = f"hashed {settings.embed_dim}-dim vectors (--fake-embed)"
+    elif EMBED_MODEL_API:
+        emb = f"{EMBED_MODEL_API} via {EMBED_BASE_URL} (no local download)"
     else:
         emb = f"{settings.embed_model} on CPU, loaded on first use"
     rerank_on = settings.enable_rerank and not fake_embed_mode
@@ -343,21 +402,27 @@ def _print_summary(args: argparse.Namespace, fake_llm: bool, fake_embed_mode: bo
     tavily = "set" if settings.tavily_api_key else "MISSING"
     service_key = "set" if settings.supabase_service_key else "MISSING"
 
-    print("Naija-Petro, local mode")
-    print(f"  llm      : {llm}")
-    print(f"  embed    : {emb}")
-    print(f"  rerank   : {rr}")
-    print(f"  enrich   : background asyncio task, Tavily key {tavily}")
+    # flush: stdout is block-buffered when redirected to a file, and uvicorn logs to
+    # stderr, so without this the summary shows up after the server output.
+    print("Naija-Petro, local mode", flush=True)
+    print(f"  llm      : {llm}", flush=True)
+    print(f"  embed    : {emb}", flush=True)
+    print(f"  rerank   : {rr}", flush=True)
+    print(f"  enrich   : background asyncio task, Tavily key {tavily}", flush=True)
     print(f"  supabase : {settings.supabase_url or '(not set)'} "
-          f"schema={settings.supabase_db_schema}, service key {service_key}")
-    print(f"  frontend : {FRONTEND_DIR}{'' if FRONTEND_DIR.exists() else '  (missing: the UI will 404)'}")
-    print(f"  open     : http://{args.host}:{args.port}")
+          f"schema={settings.supabase_db_schema}, service key {service_key}", flush=True)
+    print(f"  frontend : {FRONTEND_DIR}{'' if FRONTEND_DIR.exists() else '  (missing: the UI will 404)'}",
+          flush=True)
+    print(f"  context  : {settings.context_char_budget} chars of sources, so the server needs "
+          f"at least an 8k context window", flush=True)
+    print(f"  open     : http://{args.host}:{args.port}", flush=True)
     if not settings.supabase_url:
         print("  ! SUPABASE_URL is not set. The UI still loads, but retrieval, history, "
-              "and the daily limit check will fail. Set it in .env.")
+              "and the daily limit check will fail. Set it in .env.", flush=True)
     if not fake_llm:
         print(f"  ! Expecting an OpenAI-compatible server at {LLM_BASE_URL}. "
-              "Run `ollama serve`, or use --fake-llm.")
+              "Start LM Studio's server (`lms server start`) or run `ollama serve`, "
+              "or use --fake-llm.", flush=True)
 
 
 def main(argv: Optional[list[str]] = None) -> int:
