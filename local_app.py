@@ -28,6 +28,7 @@ import re
 import struct
 from pathlib import Path
 from typing import AsyncIterator, Callable, Optional
+from urllib.parse import urlparse
 
 from dotenv import load_dotenv
 
@@ -57,9 +58,20 @@ LLM_API_KEY = os.environ.get("LOCAL_LLM_API_KEY", "local")
 EMBED_MODEL_API = os.environ.get("LOCAL_EMBED_MODEL", "")
 EMBED_BASE_URL = os.environ.get("LOCAL_EMBED_BASE_URL", "") or LLM_BASE_URL
 
-# The schema the deployed app uses. Writing here from a local run is allowed, but
+# The schema the deployed app uses. Writing there from a local run is allowed, but
 # it is called out loudly, because it lands in the live app and its usage numbers.
 PROD_SCHEMA = "naija_petro"
+
+
+def _store_is_local() -> bool:
+    """True when the store is on this machine (see scripts/local_stack.sh).
+
+    The schema name alone says nothing: the local stack deliberately uses the same
+    schema name as production so the same SQL file provisions both. What matters is
+    whether the host is loopback.
+    """
+    host = urlparse(settings.supabase_url or "").hostname or ""
+    return host in ("localhost", "127.0.0.1", "::1", "0.0.0.0")
 
 # Written as code points, not literals, so no dash character appears in this file.
 # em-dash, en-dash, unicode hyphen, non-breaking hyphen.
@@ -477,10 +489,12 @@ def _print_summary(args: argparse.Namespace, fake_llm: bool, fake_embed_mode: bo
           f"schema={settings.supabase_db_schema}, service key {service_key}", flush=True)
     if not writes_allowed:
         writes = "READ ONLY, the live app is not affected. Pass --write to enable"
-    elif settings.supabase_db_schema == PROD_SCHEMA:
-        writes = f"ENABLED into the PRODUCTION schema '{PROD_SCHEMA}'"
-    else:
+    elif _store_is_local():
+        writes = f"ENABLED into the local stack at {settings.supabase_url}, nothing leaves this machine"
+    elif settings.supabase_db_schema != PROD_SCHEMA:
         writes = f"ENABLED into schema '{settings.supabase_db_schema}', isolated from production"
+    else:
+        writes = f"ENABLED into the PRODUCTION schema '{PROD_SCHEMA}'"
     print(f"  writes   : {writes}", flush=True)
     print(f"  frontend : {FRONTEND_DIR}{'' if FRONTEND_DIR.exists() else '  (missing: the UI will 404)'}",
           flush=True)
@@ -490,7 +504,7 @@ def _print_summary(args: argparse.Namespace, fake_llm: bool, fake_embed_mode: bo
     if not settings.supabase_url:
         print("  ! SUPABASE_URL is not set. The UI still loads, but retrieval, history, "
               "and the daily limit check will fail. Set it in .env.", flush=True)
-    if writes_allowed and settings.supabase_db_schema == PROD_SCHEMA:
+    if writes_allowed and not _store_is_local() and settings.supabase_db_schema == PROD_SCHEMA:
         print("  ! Writes go into the schema the deployed app uses. Uploads, saved history, "
               "feedback and ingested documents from this session will show up in the live "
               "app and its usage numbers. To keep them separate, point SUPABASE_DB_SCHEMA "
