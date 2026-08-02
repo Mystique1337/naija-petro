@@ -65,8 +65,10 @@ encoders_image = (
 
 web_image = (
     modal.Image.debian_slim(python_version="3.11")
+    # The RAG store is reached over the Supabase REST API, so httpx is the only
+    # database client needed here (no asyncpg/pgvector).
     .pip_install(
-        "fastapi[standard]>=0.115", "asyncpg>=0.29", "pgvector>=0.3", "httpx>=0.27",
+        "fastapi[standard]>=0.115", "httpx>=0.27",
         "trafilatura>=1.12", "pymupdf4llm>=0.0.17", "langfuse>=4.0", "openai>=1.55",
     )
     .env({"FRONTEND_DIR": FRONTEND_REMOTE})
