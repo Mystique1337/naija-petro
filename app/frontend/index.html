@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Naija-Petro · Petroleum Engineering Assistant</title>
-<!-- build: ui-9 (continue, tool picker, onboarding guide) -->
+<!-- build: ui-10 (inline calculator charts, GPU warm-up ping) -->
 <meta name="description" content="Nigeria-aware petroleum engineering AI with verifiable, cited sources." />
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛢️</text></svg>" />
 <script>tailwind = window.tailwind || {}; </script>
@@ -28,6 +28,7 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
 <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
 <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
 <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3/dist/cdn.min.js"></script>
 <style>
   :root{ color-scheme: dark; }
@@ -104,7 +105,7 @@
         <p class="text-sm opacity-70 mb-7 max-w-xl mx-auto">Ask anything across drilling, reservoir, production, completions, EOR, and Nigerian regulation. Every answer cites verifiable sources (NUPRC, NMDPRA, NNPC, NEITI, the PIA 2021), and the knowledge base grows with each question.</p>
         <div class="grid sm:grid-cols-2 gap-2.5 text-left">
           <template x-for="ex in examples" :key="ex">
-            <button @click="send(ex)" class="group text-sm px-4 py-3 rounded-xl border dark:border-[#1f2d27] border-[#e3ece7] dark:hover:border-naija hover:border-naija hover:bg-naija/5 transition flex items-start gap-2">
+            <button @click="warm(true); send(ex)" class="group text-sm px-4 py-3 rounded-xl border dark:border-[#1f2d27] border-[#e3ece7] dark:hover:border-naija hover:border-naija hover:bg-naija/5 transition flex items-start gap-2">
               <span class="text-naija-soft mt-0.5">→</span><span x-text="ex"></span>
             </button>
           </template>
@@ -153,9 +154,18 @@
                       <div class="font-semibold text-naija-soft mb-1">🧮 <span x-text="String(t.name).replace(/_/g,' ')"></span></div>
                       <div class="flex flex-wrap gap-x-4 gap-y-0.5">
                         <template x-for="(v,k) in t.result" :key="k">
-                          <span x-show="k!=='formula' && k!=='units'"><span class="opacity-60" x-text="k"></span>: <span class="font-semibold" x-text="(typeof v==='number'? v.toLocaleString() : v)"></span></span>
+                          <span x-show="k!=='formula' && k!=='units' && k!=='series'"><span class="opacity-60" x-text="k"></span>: <span class="font-semibold" x-text="(typeof v==='number'? v.toLocaleString() : v)"></span></span>
                         </template>
                       </div>
+                      <!-- plot: the curve comes from the server, no physics in JS -->
+                      <template x-if="t.result && t.result.series">
+                        <div class="mt-2 pt-2 border-t border-naija/20">
+                          <div class="text-[10px] uppercase tracking-wide opacity-55 mb-1" x-text="t.result.series.title"></div>
+                          <div class="relative w-full max-w-full h-40 sm:h-48">
+                            <canvas x-init="npDrawChartSoon($el, t.result.series)" class="max-w-full"></canvas>
+                          </div>
+                        </div>
+                      </template>
                     </div>
                   </template>
                 </div>
@@ -242,7 +252,7 @@
         <span x-show="!uploading">📎</span><span x-show="uploading">…</span>
       </button>
       <textarea x-ref="ta" x-model="input" rows="1" :disabled="busy"
-        @keydown.enter.prevent="!$event.shiftKey && send()" @input="autosize($event.target)"
+        @keydown.enter.prevent="!$event.shiftKey && send()" @input="warm($event.target.value); autosize($event.target)"
         placeholder="Ask about drilling, reservoir, the PIA 2021, NUPRC regulations…"
         class="flex-1 resize-none max-h-40 dark:bg-[#0a130f] bg-white border dark:border-[#1f2d27] border-[#e3ece7] focus:border-naija rounded-xl px-4 py-3 text-sm outline-none placeholder:opacity-50"></textarea>
       <button @click="send()" :disabled="busy||!input.trim()"
@@ -406,6 +416,15 @@
               </div>
             </template>
           </div>
+          <!-- plot, when this calculator returns a curve -->
+          <template x-if="toolResult && toolResult.series">
+            <div class="mt-3 pt-3 border-t border-naija/20">
+              <div class="text-[10px] uppercase tracking-wide opacity-55 mb-1" x-text="toolResult.series.title"></div>
+              <div class="relative w-full max-w-full h-44 sm:h-52">
+                <canvas x-ref="toolChart" class="max-w-full"></canvas>
+              </div>
+            </div>
+          </template>
         </div>
       </div>
     </div>
@@ -447,7 +466,7 @@ function app(){
     accessToken:(localStorage.getItem('np_token')||''), tokenOk:false, tokenModal:false,
     tokenInput:'', tokenMsg:'', tokenChecking:false, dailyLimit:10, limitReached:false,
     toolsModal:false, tools:[], toolSel:null, toolArgs:{}, toolResult:null, toolError:'', toolBusy:false,
-    guideModal:false,
+    guideModal:false, warmed:false,
     sessionId: uid(), userId: persistUid(),
     kb: { documents:0, chunks:0 },
     examples: [
@@ -480,11 +499,23 @@ function app(){
     closeGuide(){ this.guideModal=false; localStorage.setItem('np_guide','1'); if(localStorage.getItem('np_sub')!=='1'){ setTimeout(()=>{ this.emailModal=true; }, 500); } },
     async openTools(){
       this.toolsModal=true; this.toolError=''; this.toolSel=null; this.toolResult=null;
+      this.syncToolChart();
       if(!this.tools.length){ try{ const r=await this.apiFetch('/tools'); if(r.ok){ const d=await r.json(); this.tools=d.calculators||[]; } }catch(e){} }
     },
-    selectTool(t){ this.toolSel=t; this.toolResult=null; this.toolError=''; this.toolArgs={}; },
-    backToTools(){ this.toolSel=null; this.toolResult=null; this.toolError=''; },
-    toolResultEntries(){ return this.toolResult ? Object.entries(this.toolResult).filter(e=>e[0]!=='formula'&&e[0]!=='units') : []; },
+    selectTool(t){ this.toolSel=t; this.toolResult=null; this.toolError=''; this.toolArgs={}; this.syncToolChart(); },
+    backToTools(){ this.toolSel=null; this.toolResult=null; this.toolError=''; this.syncToolChart(); },
+    toolResultEntries(){ return this.toolResult ? Object.entries(this.toolResult).filter(e=>e[0]!=='formula'&&e[0]!=='units'&&e[0]!=='series') : []; },
+    // Draw or tear down the modal chart once Alpine has settled the DOM. The
+    // canvas lives inside an x-if, so it may take a frame to appear.
+    syncToolChart(){
+      const attempt=(n)=>{
+        const el=this.$refs.toolChart, s=this.toolResult && this.toolResult.series;
+        if(!s){ if(el) npDestroyChart(el); npPruneCharts(); return; }
+        if(el){ npDrawChart(el, s); return; }
+        if(n<5) requestAnimationFrame(()=>attempt(n+1));
+      };
+      this.$nextTick(()=>attempt(0));
+    },
     async runSelectedTool(){
       if(!this.toolSel) return;
       const args={};
@@ -499,7 +530,17 @@ function app(){
         const d=await r.json();
         if(d&&d.error){ this.toolError=d.error; } else { this.toolResult=d; }
       }catch(e){ this.toolError='Could not run the calculator.'; }
-      finally{ this.toolBusy=false; }
+      finally{ this.toolBusy=false; this.syncToolChart(); }
+    },
+    // Warm the GPU once there is real intent to ask. Booting an L4 costs money,
+    // so a stray keystroke is not enough: wait for a question worth of typing,
+    // or pass true when the click submits immediately (example prompts).
+    // Fire and forget, once per page session, never blocks typing.
+    warm(text){
+      if(this.warmed) return;
+      if(text!==true && String(text||'').trim().length < 12) return;
+      this.warmed=true;
+      try{ const p=this.apiFetch('/warm',{ method:'POST' }); if(p&&p.catch) p.catch(()=>{}); }catch(e){}
     },
     apiFetch(url, opts){
       opts = opts || {};
@@ -519,7 +560,7 @@ function app(){
       finally{ this.tokenChecking=false; }
     },
     clearToken(){ this.accessToken=''; this.tokenOk=false; localStorage.removeItem('np_token'); this.tokenInput=''; this.tokenMsg=''; },
-    toggleTheme(){ this.dark=!this.dark; document.documentElement.classList.toggle('dark', this.dark); localStorage.setItem('np_theme', this.dark?'dark':'light'); },
+    toggleTheme(){ this.dark=!this.dark; document.documentElement.classList.toggle('dark', this.dark); localStorage.setItem('np_theme', this.dark?'dark':'light'); npRestyleCharts(); },
     autosize(el){ el.style.height='auto'; el.style.height=Math.min(el.scrollHeight,160)+'px'; },
     scrollDown(){ this.$nextTick(()=>{ this.$refs.scroll.scrollTop=this.$refs.scroll.scrollHeight; }); },
     stageLabel(s){ return ({starting:'Connecting', searching:'Searching Nigerian sources', retrieving:'Searching sources', reasoning:'Warming the model', generating:'Generating'})[s] || 'Working'; },
@@ -653,7 +694,7 @@ function app(){
       this.showHistory=true;
       try{ const r=await this.apiFetch('/history?user_id='+encodeURIComponent(this.userId)); if(r.ok){ const d=await r.json(); this.sessions=d.sessions||[]; } }catch(e){}
     },
-    newChat(){ this.messages=[]; this.sessionId=uid(); this.showHistory=false; },
+    newChat(){ this.messages=[]; this.sessionId=uid(); this.showHistory=false; this.$nextTick(()=>npPruneCharts()); },
     async openSession(sid){
       this.showHistory=false;
       try{
@@ -663,7 +704,7 @@ function app(){
           if(t.role==='user') this.messages.push({role:'user', content:t.content});
           else this.messages.push({role:'assistant', raw:t.content, reasoning:'', answer:t.content, html:this.render(t.content,[]), sources:[], meta:null, streaming:false, thinking:false, showReason:false, error:null, followups:[], feedback:0, traceId:null, query:'', showComment:false, comment:'', commentSent:false, tools:[]});
         }
-        this.sessionId=sid; this.typeset(); this.scrollDown();
+        this.sessionId=sid; this.typeset(); this.scrollDown(); this.$nextTick(()=>npPruneCharts());
       }catch(e){}
     },
     openFeature(){ this.featureError=''; this.featureSent=false; this.showFeature=true; },
@@ -694,6 +735,117 @@ function app(){
 }
 function uid(){ return (crypto.randomUUID? crypto.randomUUID(): 's'+Date.now()+Math.random().toString(16).slice(2)); }
 function persistUid(){ let u=localStorage.getItem('np_uid'); if(!u){ u=uid(); localStorage.setItem('np_uid',u); } return u; }
+
+/* ---- Inline calculator charts (Chart.js) ---------------------------------
+   Chart instances are kept OUTSIDE Alpine state on purpose: a Chart wrapped in
+   a reactive Proxy misbehaves. This registry lets us restyle every live chart
+   when the theme flips and destroy any whose canvas Alpine has removed. The
+   curve itself always comes from the server "series" key, never recomputed. */
+const npCharts = new Set();
+
+function npChartColors(){
+  const d = document.documentElement.classList.contains('dark');
+  return {
+    line:  d ? '#4ade80' : '#16a34a',
+    fill:  d ? 'rgba(74,222,128,.14)' : 'rgba(22,163,74,.10)',
+    grid:  d ? 'rgba(159,179,168,.16)' : 'rgba(15,27,21,.10)',
+    text:  d ? '#9fb3a8' : '#4b5f55',
+    tipBg: d ? '#0c1f14' : '#ffffff',
+    tipFg: d ? '#dbe7e0' : '#0f1b15',
+    tipBd: d ? '#1f2d27' : '#e3ece7',
+  };
+}
+function npFmtTick(v){          // axis ticks: short, so labels never crowd
+  const n = Number(v);
+  if(!isFinite(n)) return '';
+  const a = Math.abs(n);
+  if(a !== 0 && a < 1e-3) return n.toExponential(1);
+  if(a >= 1e6){ try{ return n.toLocaleString(undefined, { notation:'compact', maximumFractionDigits:1 }); }catch(e){ return n.toExponential(1); } }
+  return n.toLocaleString(undefined, { maximumFractionDigits: a >= 100 ? 0 : 2 });
+}
+function npFmtVal(v){           // tooltips: precise
+  const n = Number(v);
+  if(!isFinite(n)) return '';
+  const a = Math.abs(n);
+  if(a !== 0 && (a >= 1e9 || a < 1e-3)) return n.toExponential(3);
+  return n.toLocaleString(undefined, { maximumFractionDigits: a >= 1000 ? 0 : (a >= 1 ? 2 : 4) });
+}
+function npPruneCharts(){
+  npCharts.forEach(c=>{
+    if(!c || !c.canvas || !c.canvas.isConnected){ try{ c.destroy(); }catch(e){} npCharts.delete(c); }
+  });
+}
+function npDestroyChart(el){
+  if(!el || !window.Chart) return;
+  try{ const c = window.Chart.getChart(el); if(c){ npCharts.delete(c); c.destroy(); } }catch(e){}
+}
+function npDrawChartSoon(el, series){ requestAnimationFrame(()=>npDrawChart(el, series)); }
+function npDrawChart(el, series, tries){
+  if(!el || el.isConnected===false || !series || !series.x || !series.y) return;
+  if(!window.Chart){ if((tries||0) < 20) setTimeout(()=>npDrawChart(el, series, (tries||0)+1), 150); return; }
+  let s; try{ s = JSON.parse(JSON.stringify(series)); }catch(e){ return; }   // unwrap Alpine proxies
+  if(!Array.isArray(s.x) || !Array.isArray(s.y)) return;
+  // null/undefined are dropped, not coerced to 0: JSON turns NaN and Infinity into null
+  const pts = s.x.map((v,i)=>({ x:v, y:s.y[i] }))
+    .filter(p=>p.x!=null && p.y!=null && isFinite(Number(p.x)) && isFinite(Number(p.y)))
+    .map(p=>({ x:Number(p.x), y:Number(p.y) }));
+  if(pts.length < 2) return;
+  npPruneCharts();
+  npDestroyChart(el);            // so a re-render never hits "canvas is already in use"
+  const c = npChartColors();
+  try{
+    const chart = new window.Chart(el, {
+      type:'line',
+      data:{ datasets:[{ data:pts, borderColor:c.line, backgroundColor:c.fill, borderWidth:2, fill:true,
+        tension:.25, pointRadius:0, pointHitRadius:14, pointHoverRadius:4,
+        pointHoverBackgroundColor:c.line, pointHoverBorderColor:c.line }] },
+      options:{
+        responsive:true, maintainAspectRatio:false, animation:false,
+        interaction:{ mode:'index', intersect:false },
+        layout:{ padding:{ top:4, right:8 } },
+        plugins:{
+          legend:{ display:false },
+          tooltip:{ backgroundColor:c.tipBg, titleColor:c.tipFg, bodyColor:c.tipFg, borderColor:c.tipBd,
+            borderWidth:1, displayColors:false, padding:8,
+            callbacks:{ title:(it)=> (s.x_label||'x')+': '+npFmtVal(it[0].parsed.x),
+                        label:(it)=> (s.y_label||'y')+': '+npFmtVal(it.parsed.y) } },
+        },
+        scales:{
+          x:{ type:'linear',
+              title:{ display:!!s.x_label, text:s.x_label, color:c.text, font:{ size:10 } },
+              ticks:{ color:c.text, font:{ size:10 }, maxTicksLimit:6, callback:(v)=>npFmtTick(v) },
+              grid:{ color:c.grid, tickColor:'transparent' }, border:{ color:c.grid } },
+          y:{ type:'linear', beginAtZero:true,
+              title:{ display:!!s.y_label, text:s.y_label, color:c.text, font:{ size:10 } },
+              ticks:{ color:c.text, font:{ size:10 }, maxTicksLimit:5, callback:(v)=>npFmtTick(v) },
+              grid:{ color:c.grid, tickColor:'transparent' }, border:{ color:c.grid } },
+        },
+      },
+    });
+    npCharts.add(chart);
+  }catch(e){}
+}
+function npRestyleCharts(){
+  npPruneCharts();
+  const c = npChartColors();
+  npCharts.forEach(chart=>{
+    try{
+      const ds = chart.data.datasets[0];
+      ds.borderColor=c.line; ds.backgroundColor=c.fill;
+      ds.pointHoverBackgroundColor=c.line; ds.pointHoverBorderColor=c.line;
+      const o = chart.options;
+      Object.assign(o.plugins.tooltip, { backgroundColor:c.tipBg, titleColor:c.tipFg, bodyColor:c.tipFg, borderColor:c.tipBd });
+      ['x','y'].forEach(k=>{
+        const sc=o.scales[k]; if(!sc) return;
+        if(sc.title) sc.title.color=c.text;
+        if(sc.ticks) sc.ticks.color=c.text;
+        if(sc.grid) sc.grid.color=c.grid;
+        if(sc.border) sc.border.color=c.grid;
+      });
+      chart.update('none');
+    }catch(e){}
+  });
+}
 </script>
 </body>
 </html>
