@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
 import os
 import re
 import time
@@ -27,6 +28,8 @@ from app.rag import db
 from app.rag.prompts import build_messages
 from app.rag.retriever import retrieve
 from app.tools.calculators import CALCULATORS, TOOL_MENU, TOOL_SPECS, needs_tools, run_tool
+
+log = logging.getLogger("naija_petro")
 
 TOOL_SELECT_SYS = (
     "You pick a calculator for a petroleum-engineering question. Given the list and the "
@@ -56,6 +59,15 @@ FOLLOWUP_SYS = (
     "Plain text only: one question per line, no numbering, no markdown, no bold, no "
     "preamble, no em-dashes. Do not use <think> tags."
 )
+
+
+_THINK_RE = re.compile(r"<think>.*?</think>", re.S)
+
+
+def _strip_think(text: str) -> str:
+    """Drop a reasoning block that came back inline rather than in its own field."""
+    text = _THINK_RE.sub("", text or "")
+    return text.replace("<think>", "").replace("</think>", "").strip()
 
 
 def _clean_followup(line: str) -> str:
@@ -590,17 +602,29 @@ def create_app(deps: Deps) -> FastAPI:
                                 {"role": "system", "content": FOLLOWUP_SYS},
                                 {"role": "user", "content": f"Question: {msg}\n\nAnswer: {answer[:1500]}\n\nThree follow-up questions:"},
                             ]
-                            fu = await deps.llm_complete(fu_msgs, {"max_tokens": 140, "temperature": 0.5, "reasoning": False})
-                            qs = [_clean_followup(l) for l in fu.splitlines() if l.strip()]
-                            # The model routinely writes fuller questions than the
-                            # prompt asks for (120 to 140 chars against a 12 word
-                            # request). A tighter cap here silently dropped every
-                            # suggestion, so follow-ups never appeared at all.
-                            qs = [q for q in qs if 8 < len(q) <= 200][:3]
+                            # 220 tokens, because the model ignores the 12 word
+                            # request and writes 80 to 200 character questions; at 140
+                            # the third one was cut off mid-sentence.
+                            fu = await deps.llm_complete(fu_msgs, {"max_tokens": 220, "temperature": 0.5, "reasoning": False})
+                            qs = [_clean_followup(l) for l in _strip_think(fu).splitlines() if l.strip()]
+                            # Keep questions, nothing else. The model sometimes answers
+                            # instead of asking, and a length filter alone let markdown
+                            # table rows through as "suggestions". Trailing question
+                            # mark is the reliable signal; emitting nothing beats
+                            # emitting noise.
+                            qs = [q for q in qs if q.endswith("?") and len(q) > 8][:3]
+                            qs = [q if len(q) <= 160 else q[:157].rstrip() + "..." for q in qs]
                             if qs:
                                 yield _sse("followups", items=qs)
-                        except Exception:
-                            pass
+                            else:
+                                log.warning("follow-ups produced nothing usable from %r", (fu or "")[:200])
+                        except asyncio.CancelledError:
+                            log.warning("follow-up generation cancelled")
+                            raise
+                        except Exception as e:
+                            # Best-effort, but not silent: swallowing this is how the
+                            # follow-up feature stayed broken without anyone noticing.
+                            log.warning("follow-up generation failed: %s: %s", type(e).__name__, e)
             except Exception as e:  # surface errors to the client cleanly
                 yield _sse("error", message=str(e))
             finally:

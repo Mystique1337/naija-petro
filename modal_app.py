@@ -178,7 +178,15 @@ class LLMService:
             max_tokens=s.get("max_tokens", settings.max_new_tokens),
             extra_body={"chat_template_kwargs": {"enable_thinking": bool(s.get("reasoning", False))}},
         )
-        return _strip_dashes(resp.choices[0].message.content or "")
+        msg = resp.choices[0].message
+        text = (getattr(msg, "content", None) or "").strip()
+        if not text:
+            # vLLM with a reasoning parser, and LM Studio, route Qwen3's <think>
+            # block into reasoning_content and can leave content empty. Reading only
+            # content silently returned "", which broke follow-ups and tool
+            # selection without any error surfacing.
+            text = (getattr(msg, "reasoning_content", None) or "").strip()
+        return _strip_dashes(text)
 
 
 # --------------------------------------------------------------------------- #
