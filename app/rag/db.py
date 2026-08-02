@@ -32,7 +32,7 @@ def _rest_base() -> str:
         raise RuntimeError("SUPABASE_URL is not set")
     if not settings.supabase_service_key:
         raise RuntimeError("SUPABASE_SERVICE_ROLE_KEY is not set")
-    return f"{settings.supabase_url}/rest/v1"
+    return f"{settings.supabase_url}{settings.supabase_rest_path}"
 
 
 def _headers(*, write: bool = False, prefer: str | None = None) -> dict:

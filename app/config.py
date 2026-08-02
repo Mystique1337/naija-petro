@@ -53,6 +53,10 @@ class Settings:
     )
     supabase_anon_key: str = os.environ.get("SUPABASE_ANON_KEY", "")
     supabase_db_schema: str = os.environ.get("SUPABASE_DB_SCHEMA", "naija_petro")
+    # Supabase serves PostgREST behind its gateway under /rest/v1. A PostgREST
+    # running on its own serves the same API at the root, so a local stack sets
+    # this to an empty string.
+    supabase_rest_path: str = os.environ.get("SUPABASE_REST_PATH", "/rest/v1")
     # Optional direct Postgres DSN (used only by the offline admin scripts in
     # scripts/, not by the running app). Left blank in normal REST operation.
     supabase_db_url: str = os.environ.get("SUPABASE_DB_URL", "")
