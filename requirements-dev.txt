@@ -1,0 +1,11 @@
+# Test + lint dependencies only. Deliberately lean: the suite covers the pure
+# functions and the FastAPI layer with stubs, so no Modal, GPU, database, or
+# scraping packages are needed.
+pytest>=8.0
+ruff>=0.6
+
+# Minimum runtime packages the tests import.
+fastapi>=0.115          # brings starlette + pydantic
+pydantic>=2.7
+httpx>=0.27             # required by fastapi.testclient.TestClient
+python-multipart>=0.0.9  # required by the /upload route's File/Form params
