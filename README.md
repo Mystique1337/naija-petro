@@ -195,6 +195,39 @@ before the model ever sees them.
 The embedding model must be `nomic-embed-text-v1.5` at 768 dimensions to match the stored
 vectors. A mismatch is reported loudly at first use rather than silently returning nonsense.
 
+### Fully local stack (no cloud at all)
+
+`scripts/local_stack.sh` runs the whole data layer on your machine: Postgres with pgvector,
+and PostgREST in front of it. The app then talks to `localhost` instead of Supabase, so
+everything works, including uploads, history and live ingestion, and nothing can reach the
+deployed app.
+
+```bash
+brew install postgresql@17 pgvector postgrest    # once
+bash scripts/local_stack.sh up                   # start both, apply the schema
+source .localdb/env                              # point the app at localhost
+python3 local_app.py --write
+```
+
+```bash
+bash scripts/local_stack.sh status               # what is running + knowledge base size
+bash scripts/local_stack.sh down                 # stop, keep the data
+bash scripts/local_stack.sh reset                # stop and delete everything
+```
+
+Everything lives in `.localdb/` (gitignored): the cluster, the PostgREST config, the logs,
+and a generated `env` file. PostgREST is used rather than a direct database client on
+purpose: local development then exercises **the same code path as production**, instead of a
+parallel implementation that can drift. Auth is identical too, since the script mints a
+`service_role` JWT exactly like the one Supabase issues.
+
+The local knowledge base starts empty and fills itself: ask a question, coverage comes back
+low, and the app fetches, chunks, embeds and stores the sources. A first query typically
+ingests a few hundred chunks. `python3 scripts/seed_kb.py` seeds it deliberately instead.
+
+Ports default to 55432 for Postgres and 3111 for PostgREST. Override with `LOCAL_PG_PORT`
+and `LOCAL_REST_PORT` if either is taken.
+
 ### Read-only or writing
 
 Local runs are **read-only by default**: retrieval, knowledge-base reads and history reads
