@@ -166,11 +166,34 @@ python local_app.py --fake             # both
 
 Other flags: `--host` (default `127.0.0.1`), `--port` (default `8000`), `--reload` to restart on code changes.
 
+### With LM Studio
+
+LM Studio works as well as Ollama and can serve the embedding model too, which skips the
+550 MB `sentence-transformers` download entirely:
+
+```bash
+lms server start
+lms load naija-petro-8b -c 8192          # context matters, see below
+LOCAL_LLM_BASE_URL=http://localhost:1234/v1 \
+LOCAL_LLM_MODEL=naija-petro-8b \
+LOCAL_EMBED_MODEL=text-embedding-nomic-embed-text-v1.5 \
+python local_app.py
+```
+
+**Load the model with at least an 8k context.** `RAG_CONTEXT_CHARS` is 20000, so a grounded
+prompt runs well past the 4096 tokens LM Studio defaults to, and the sources get truncated
+before the model ever sees them.
+
 | Variable | Purpose |
 |---|---|
-| `LOCAL_LLM_BASE_URL` | OpenAI-compatible endpoint (default `http://localhost:11434/v1`, which is Ollama) |
+| `LOCAL_LLM_BASE_URL` | OpenAI-compatible endpoint (default `http://localhost:11434/v1`, which is Ollama; LM Studio is `http://localhost:1234/v1`) |
 | `LOCAL_LLM_MODEL` | Model to request (default `hf.co/Shinzmann/naija-petro-8b-GGUF:Q4_K_M`) |
 | `LOCAL_LLM_API_KEY` | Key for that endpoint (default `local`; most local servers ignore it) |
+| `LOCAL_EMBED_MODEL` | Optional. Embedding model id on the same server. Set it to use the API instead of a local `sentence-transformers` copy |
+| `LOCAL_EMBED_BASE_URL` | Optional. Defaults to `LOCAL_LLM_BASE_URL` |
+
+The embedding model must be `nomic-embed-text-v1.5` at 768 dimensions to match the stored
+vectors. A mismatch is reported loudly at first use rather than silently returning nonsense.
 
 Notes:
 - It loads the repo `.env` and reads and writes the **same Supabase over the REST API** as the deployed app, so there is no local database to run and no schema to apply. Documents you ingest locally land in the shared store. Without `SUPABASE_URL` the UI still loads, but retrieval and history fail; the startup summary says so.
