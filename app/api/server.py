@@ -592,7 +592,11 @@ def create_app(deps: Deps) -> FastAPI:
                             ]
                             fu = await deps.llm_complete(fu_msgs, {"max_tokens": 140, "temperature": 0.5, "reasoning": False})
                             qs = [_clean_followup(l) for l in fu.splitlines() if l.strip()]
-                            qs = [q for q in qs if 8 < len(q) <= 120][:3]
+                            # The model routinely writes fuller questions than the
+                            # prompt asks for (120 to 140 chars against a 12 word
+                            # request). A tighter cap here silently dropped every
+                            # suggestion, so follow-ups never appeared at all.
+                            qs = [q for q in qs if 8 < len(q) <= 200][:3]
                             if qs:
                                 yield _sse("followups", items=qs)
                         except Exception:
