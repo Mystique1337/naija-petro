@@ -114,6 +114,20 @@ async def llm_stream(messages: list[dict], sampling: dict | None = None) -> Asyn
         yield STREAM_TRUNCATED
 
 
+def _message_text(message) -> str:
+    """Text of a completion, wherever the server decided to put it.
+
+    LM Studio, and vLLM with a reasoning parser, route Qwen3's <think> block into
+    `reasoning_content` and can leave `content` completely empty. Reading only
+    `content` silently returned "" and quietly broke every feature built on
+    llm_complete, so fall back rather than lose the response.
+    """
+    text = (getattr(message, "content", None) or "").strip()
+    if not text:
+        text = (getattr(message, "reasoning_content", None) or "").strip()
+    return text
+
+
 async def llm_complete(messages: list[dict], sampling: dict | None = None) -> str:
     s = sampling or {}
     resp = await _openai_client().chat.completions.create(
@@ -123,7 +137,7 @@ async def llm_complete(messages: list[dict], sampling: dict | None = None) -> st
         max_tokens=s.get("max_tokens", settings.max_new_tokens),
         extra_body={"chat_template_kwargs": {"enable_thinking": bool(s.get("reasoning", False))}},
     )
-    return _strip_dashes(resp.choices[0].message.content or "")
+    return _strip_dashes(_message_text(resp.choices[0].message))
 
 
 # --------------------------------------------------------------------------- #
@@ -318,14 +332,12 @@ def _make_spawn_enrich(embed_fn: Callable) -> Callable[[str], None]:
 # --------------------------------------------------------------------------- #
 # App factory + CLI
 # --------------------------------------------------------------------------- #
-def _disable_ingestion() -> None:
+def _disable_ingestion(reason: str = "ingestion disabled") -> None:
     """Stop anything being written into the knowledge base.
 
-    Used only with faked embeddings. The local app shares the production
-    Supabase, and retrieval ingests live sources on its own whenever local
-    coverage looks weak, which hashed placeholder vectors guarantee. Without
-    this, running the UI in fake mode would quietly poison the real store with
-    documents whose embeddings mean nothing.
+    Retrieval ingests live sources on its own whenever local coverage looks weak,
+    so blocking the db write alone is not enough: the fetch and the Tavily call
+    would still happen and cost credits. This cuts it off at the source.
     """
     from app.rag import ingest
 
@@ -333,7 +345,7 @@ def _disable_ingestion() -> None:
         return {"searched": 0, "ingested_docs": 0, "new_chunks": 0, "urls": []}
 
     async def _no_text(*a, **kw):
-        return {"inserted": False, "chunk_count": 0, "reason": "ingestion disabled in fake mode"}
+        return {"inserted": False, "chunk_count": 0, "reason": reason}
 
     async def _no_urls(*a, **kw):
         return {"ingested_docs": 0, "new_chunks": 0}
@@ -341,6 +353,38 @@ def _disable_ingestion() -> None:
     ingest.ingest_query = _no_query
     ingest.ingest_text = _no_text
     ingest.ingest_urls = _no_urls
+
+
+def _make_store_read_only() -> None:
+    """Let the local app read production data but never change it.
+
+    The local app points at the same Supabase as the deployed app, because that is
+    what makes retrieval realistic. The cost of that convenience is that a local
+    session would otherwise write into live tables: analytics rows that pollute the
+    usage numbers, saved conversations, feedback, subscribers, feature requests, and
+    documents ingested into the real knowledge base.
+
+    Every write is replaced with a no-op that returns the shape callers expect, so
+    the app behaves normally and only the persistence disappears. Reads (retrieval,
+    kb stats, history, token checks) are untouched. Pass --write to opt out.
+    """
+    from app.rag import db
+
+    async def _noop(*a, **kw):
+        return None
+
+    async def _no_document(*a, **kw):
+        return {"inserted": False, "document_id": None, "chunk_count": 0}
+
+    db.log_usage = _noop            # analytics: would skew the real usage numbers
+    db.log_feedback = _noop         # feedback: would land in the training data
+    db.save_turns = _noop           # chat history
+    db.subscribe = _noop            # email capture
+    db.add_feature = _noop          # feature request board
+    db.create_token = _noop         # admin writes
+    db.set_token_active = _noop
+    db.upsert_document = _no_document
+    _disable_ingestion("read-only local mode, use --write to allow ingestion")
 
 
 def create_local_app():
@@ -353,9 +397,16 @@ def create_local_app():
 
     fake_llm = _env_flag("LOCAL_FAKE_LLM")
     fake_embed_mode = _env_flag("LOCAL_FAKE_EMBED")
+    writes_allowed = _env_flag("LOCAL_ALLOW_WRITES")
     embed_fn = fake_embed if fake_embed_mode else embed
-    if fake_embed_mode:
-        _disable_ingestion()
+
+    # Default: read the shared store, change nothing in it. --write opts out.
+    if not writes_allowed:
+        _make_store_read_only()
+    elif fake_embed_mode:
+        # Writes are allowed but the vectors are meaningless, so still block
+        # ingestion rather than poisoning the knowledge base with hashed vectors.
+        _disable_ingestion("fake embeddings must never be written to the store")
 
     deps = Deps(
         embed=embed_fn,
@@ -363,9 +414,9 @@ def create_local_app():
         llm_complete=fake_llm_complete if fake_llm else llm_complete,
         # Fake embeddings mean "download nothing", so the cross-encoder stays off too.
         rerank=rerank if (settings.enable_rerank and not fake_embed_mode) else None,
-        # The store is shared with production, so never let hashed placeholder
-        # vectors be written into it: no enrichment while embeddings are faked.
-        spawn_enrich=None if fake_embed_mode else _make_spawn_enrich(embed_fn),
+        # Enrichment only makes sense when it can actually store what it fetches.
+        spawn_enrich=(_make_spawn_enrich(embed_fn)
+                      if (writes_allowed and not fake_embed_mode) else None),
     )
     return create_app(deps)
 
@@ -380,6 +431,9 @@ def _parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     p.add_argument("--fake-embed", action="store_true",
                    help="deterministic hashed vectors instead of the embedding model")
     p.add_argument("--fake", action="store_true", help="shorthand for --fake-llm --fake-embed")
+    p.add_argument("--write", action="store_true",
+                   help="allow writes to the shared store (analytics, history, feedback, "
+                        "ingestion). Off by default so local runs cannot affect the live app")
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8000)
     p.add_argument("--reload", action="store_true", help="restart the server on code changes")
@@ -401,6 +455,12 @@ def _print_summary(args: argparse.Namespace, fake_llm: bool, fake_embed_mode: bo
     rr = f"{settings.rerank_model} on CPU" if rerank_on else "off"
     tavily = "set" if settings.tavily_api_key else "MISSING"
     service_key = "set" if settings.supabase_service_key else "MISSING"
+    writes_allowed = _env_flag("LOCAL_ALLOW_WRITES")
+    if writes_allowed:
+        enrich = (f"background asyncio task, Tavily key {tavily}"
+                  if not fake_embed_mode else "off (fake embeddings)")
+    else:
+        enrich = "off (read-only mode)"
 
     # flush: stdout is block-buffered when redirected to a file, and uvicorn logs to
     # stderr, so without this the summary shows up after the server output.
@@ -408,9 +468,11 @@ def _print_summary(args: argparse.Namespace, fake_llm: bool, fake_embed_mode: bo
     print(f"  llm      : {llm}", flush=True)
     print(f"  embed    : {emb}", flush=True)
     print(f"  rerank   : {rr}", flush=True)
-    print(f"  enrich   : background asyncio task, Tavily key {tavily}", flush=True)
+    print(f"  enrich   : {enrich}", flush=True)
     print(f"  supabase : {settings.supabase_url or '(not set)'} "
           f"schema={settings.supabase_db_schema}, service key {service_key}", flush=True)
+    print(f"  writes   : {'ENABLED (--write): this session changes live data' if writes_allowed else 'READ ONLY, the live app is not affected'}",
+          flush=True)
     print(f"  frontend : {FRONTEND_DIR}{'' if FRONTEND_DIR.exists() else '  (missing: the UI will 404)'}",
           flush=True)
     print(f"  context  : {settings.context_char_budget} chars of sources, so the server needs "
@@ -431,6 +493,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     fake_embed_mode = args.fake or args.fake_embed
     os.environ["LOCAL_FAKE_LLM"] = "1" if fake_llm else "0"
     os.environ["LOCAL_FAKE_EMBED"] = "1" if fake_embed_mode else "0"
+    os.environ["LOCAL_ALLOW_WRITES"] = "1" if args.write else "0"
 
     _print_summary(args, fake_llm, fake_embed_mode)
 
