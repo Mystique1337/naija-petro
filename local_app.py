@@ -57,6 +57,10 @@ LLM_API_KEY = os.environ.get("LOCAL_LLM_API_KEY", "local")
 EMBED_MODEL_API = os.environ.get("LOCAL_EMBED_MODEL", "")
 EMBED_BASE_URL = os.environ.get("LOCAL_EMBED_BASE_URL", "") or LLM_BASE_URL
 
+# The schema the deployed app uses. Writing here from a local run is allowed, but
+# it is called out loudly, because it lands in the live app and its usage numbers.
+PROD_SCHEMA = "naija_petro"
+
 # Written as code points, not literals, so no dash character appears in this file.
 # em-dash, en-dash, unicode hyphen, non-breaking hyphen.
 UNICODE_DASHES = (chr(0x2014), chr(0x2013), chr(0x2010), chr(0x2011))
@@ -471,8 +475,13 @@ def _print_summary(args: argparse.Namespace, fake_llm: bool, fake_embed_mode: bo
     print(f"  enrich   : {enrich}", flush=True)
     print(f"  supabase : {settings.supabase_url or '(not set)'} "
           f"schema={settings.supabase_db_schema}, service key {service_key}", flush=True)
-    print(f"  writes   : {'ENABLED (--write): this session changes live data' if writes_allowed else 'READ ONLY, the live app is not affected'}",
-          flush=True)
+    if not writes_allowed:
+        writes = "READ ONLY, the live app is not affected. Pass --write to enable"
+    elif settings.supabase_db_schema == PROD_SCHEMA:
+        writes = f"ENABLED into the PRODUCTION schema '{PROD_SCHEMA}'"
+    else:
+        writes = f"ENABLED into schema '{settings.supabase_db_schema}', isolated from production"
+    print(f"  writes   : {writes}", flush=True)
     print(f"  frontend : {FRONTEND_DIR}{'' if FRONTEND_DIR.exists() else '  (missing: the UI will 404)'}",
           flush=True)
     print(f"  context  : {settings.context_char_budget} chars of sources, so the server needs "
@@ -481,6 +490,11 @@ def _print_summary(args: argparse.Namespace, fake_llm: bool, fake_embed_mode: bo
     if not settings.supabase_url:
         print("  ! SUPABASE_URL is not set. The UI still loads, but retrieval, history, "
               "and the daily limit check will fail. Set it in .env.", flush=True)
+    if writes_allowed and settings.supabase_db_schema == PROD_SCHEMA:
+        print("  ! Writes go into the schema the deployed app uses. Uploads, saved history, "
+              "feedback and ingested documents from this session will show up in the live "
+              "app and its usage numbers. To keep them separate, point SUPABASE_DB_SCHEMA "
+              "at a development schema (see the README).", flush=True)
     if not fake_llm:
         print(f"  ! Expecting an OpenAI-compatible server at {LLM_BASE_URL}. "
               "Start LM Studio's server (`lms server start`) or run `ollama serve`, "
