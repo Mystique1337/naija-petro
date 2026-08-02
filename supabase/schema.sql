@@ -1,12 +1,24 @@
 -- ============================================================================
--- Naija-Petro RAG — vector store schema (Postgres + pgvector)
+-- Naija-Petro RAG - vector store schema (Postgres + pgvector)
 --
--- Works on a self-hosted Supabase OR a plain Railway Postgres. Run once:
+-- Works on a self-hosted Supabase OR a plain Postgres. Run once, either by
+-- pasting this file into the Supabase Studio SQL editor or with:
 --     psql "$SUPABASE_DB_URL" -f supabase/schema.sql
+--
+-- SCHEMA: everything is created in the app's own schema so one Supabase
+-- instance can host several apps. It must match SUPABASE_DB_SCHEMA in .env
+-- (default naija_petro). For a single-tenant database, change the two lines
+-- below to `SET search_path = public, extensions;` and drop the CREATE SCHEMA.
+--
+-- On Supabase, also add this schema to the exposed schemas in
+-- Project Settings > API (PGRST_DB_SCHEMAS), otherwise PostgREST cannot see it.
 --
 -- Embedding dimension is 768 (nomic-embed-text-v1.5). If you change EMBED_MODEL
 -- to a different dimension, update every `vector(768)` below and re-run.
 -- ============================================================================
+
+CREATE SCHEMA IF NOT EXISTS naija_petro;
+SET search_path = naija_petro, public, extensions;
 
 CREATE EXTENSION IF NOT EXISTS vector;
 CREATE EXTENSION IF NOT EXISTS pg_trgm;     -- fuzzy text helpers (optional)
@@ -267,3 +279,38 @@ CREATE TABLE IF NOT EXISTS access_tokens (
     active      BOOLEAN DEFAULT TRUE,
     created_at  TIMESTAMPTZ DEFAULT now()
 );
+
+-- ===========================================================================
+-- Make the functions callable from PostgREST.
+--
+-- A function in a non-public schema does NOT inherit the caller's search_path,
+-- so its unqualified table names (documents, document_chunks) fail to resolve
+-- with `relation "documents" does not exist`. Pinning search_path per function
+-- fixes that for every caller; `extensions` is included because pgvector and
+-- its `<=>` operator live there on Supabase.
+-- ===========================================================================
+DO $$
+DECLARE s TEXT := current_schema();
+BEGIN
+    EXECUTE format(
+        'ALTER FUNCTION match_documents(vector, int, float) SET search_path = %I, public, extensions', s);
+    EXECUTE format(
+        'ALTER FUNCTION hybrid_search(text, vector, int, int, float, float) SET search_path = %I, public, extensions', s);
+    EXECUTE format(
+        'ALTER FUNCTION kb_stats() SET search_path = %I, public, extensions', s);
+    EXECUTE format(
+        'ALTER FUNCTION recent_request_count(text, text, int) SET search_path = %I, public, extensions', s);
+END $$;
+
+-- Supabase roles: let PostgREST read the schema and the service key write it.
+-- Skipped automatically on a plain Postgres, where these roles do not exist.
+DO $$
+DECLARE s TEXT := current_schema();
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN
+        EXECUTE format('GRANT USAGE ON SCHEMA %I TO anon, authenticated, service_role', s);
+        EXECUTE format('GRANT ALL ON ALL TABLES IN SCHEMA %I TO service_role', s);
+        EXECUTE format('GRANT ALL ON ALL SEQUENCES IN SCHEMA %I TO service_role', s);
+        EXECUTE format('GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA %I TO anon, authenticated, service_role', s);
+    END IF;
+END $$;
