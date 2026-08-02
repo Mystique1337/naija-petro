@@ -234,6 +234,24 @@ source .localdb/env                              # point the app at localhost
 python3 local_app.py --write
 ```
 
+With LM Studio as the model server, note that **loading a model does not start its API**:
+
+```bash
+lms server start                                 # easy to forget, nothing works without it
+lms load naija-petro-8b -c 8192                  # 8k context, see the warning below
+lms load text-embedding-nomic-embed-text-v1.5    # skips the sentence-transformers download
+
+source .localdb/env
+LOCAL_LLM_BASE_URL=http://localhost:1234/v1 \
+LOCAL_LLM_MODEL=naija-petro-8b \
+LOCAL_EMBED_MODEL=text-embedding-nomic-embed-text-v1.5 \
+python3 local_app.py --write
+```
+
+If `python3` cannot find `dotenv` or `fastapi`, you are on a different interpreter from the
+one holding the dependencies (Homebrew's Python takes over the PATH after installing
+postgresql). Run `which -a python3` and call the right one explicitly.
+
 ```bash
 bash scripts/local_stack.sh status               # what is running + knowledge base size
 bash scripts/local_stack.sh down                 # stop, keep the data
