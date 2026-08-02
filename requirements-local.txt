@@ -1,0 +1,19 @@
+# Extras for running the whole app on a laptop with local_app.py (no Modal, no
+# cloud GPU). Layers on top of requirements.txt, it does not replace it:
+#
+#     pip install -r requirements.txt -r requirements-local.txt
+#
+# In production these live in the Modal images instead (see modal_app.py), which
+# is why they are not in requirements.txt. Skip this file if you only ever run
+# local_app.py --fake, which needs no encoder at all.
+
+# Encoders on CPU: embeddings (nomic-embed-text-v1.5) and the optional
+# cross-encoder reranker, both through sentence-transformers. Pulls in torch and
+# transformers; einops is required by the nomic remote code.
+sentence-transformers>=3.0
+einops
+
+# ASGI server for local serving. fastapi[standard] already pulls uvicorn in, but
+# local_app.py calls uvicorn.run directly, and [standard] adds the watchfiles
+# reloader that --reload needs.
+uvicorn[standard]>=0.30

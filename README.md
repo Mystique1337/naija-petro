@@ -142,6 +142,42 @@ Notes:
 - `pgvector` must be enabled on the database; the schema runs `CREATE EXTENSION IF NOT EXISTS vector`.
 - Modal deploys into the **active profile's workspace**. If you keep several profiles, run `modal profile list` and activate the right one before deploying, or you will create a second app under a different URL.
 
+## Run locally
+
+`local_app.py` runs the whole app on a laptop: no Modal, no cloud GPU. It builds the same FastAPI app as the deployment, but injects local implementations of the GPU work: an OpenAI-compatible server on `localhost` for the model, `sentence-transformers` on CPU for embeddings, and a background task for enrichment.
+
+```bash
+pip install -r requirements.txt -r requirements-local.txt
+
+# 1) Serve the model. Ollama pulls the published GGUF straight from the Hub.
+ollama pull hf.co/Shinzmann/naija-petro-8b-GGUF:Q4_K_M
+
+# 2) Run the app
+python local_app.py                    # http://127.0.0.1:8000
+```
+
+Working on the frontend? The fake modes need no model at all, so nothing is downloaded and nothing runs on the GPU:
+
+```bash
+python local_app.py --fake-llm         # canned markdown answer, real retrieval
+python local_app.py --fake-embed       # deterministic hashed vectors, no encoder
+python local_app.py --fake             # both
+```
+
+Other flags: `--host` (default `127.0.0.1`), `--port` (default `8000`), `--reload` to restart on code changes.
+
+| Variable | Purpose |
+|---|---|
+| `LOCAL_LLM_BASE_URL` | OpenAI-compatible endpoint (default `http://localhost:11434/v1`, which is Ollama) |
+| `LOCAL_LLM_MODEL` | Model to request (default `hf.co/Shinzmann/naija-petro-8b-GGUF:Q4_K_M`) |
+| `LOCAL_LLM_API_KEY` | Key for that endpoint (default `local`; most local servers ignore it) |
+
+Notes:
+- It loads the repo `.env` and reads and writes the **same Supabase over the REST API** as the deployed app, so there is no local database to run and no schema to apply. Documents you ingest locally land in the shared store. Without `SUPABASE_URL` the UI still loads, but retrieval and history fail; the startup summary says so.
+- `--fake-embed` disables ingestion entirely, so placeholder vectors can never be written into the shared knowledge base.
+- Any OpenAI-compatible server works: point `LOCAL_LLM_BASE_URL` at llama.cpp, LM Studio, or a local vLLM instead of Ollama. The 32B GGUF works the same way if you have the memory for it.
+- The first real query downloads `nomic-embed-text-v1.5` (roughly 550 MB) and runs it on CPU, so it is slow once and fast afterwards. `--fake-embed` skips that entirely.
+
 ## Configuration
 
 All settings live in `.env` (see [`.env.example`](.env.example)). The essentials:
