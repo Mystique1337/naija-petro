@@ -55,3 +55,6 @@ Thumbs.db
 .idea/
 .vscode/
 *.swp
+
+# --- local dev stack (postgres + postgrest data) ---
+.localdb/
