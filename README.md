@@ -196,8 +196,9 @@ The embedding model must be `nomic-embed-text-v1.5` at 768 dimensions to match t
 vectors. A mismatch is reported loudly at first use rather than silently returning nonsense.
 
 Notes:
-- It loads the repo `.env` and reads and writes the **same Supabase over the REST API** as the deployed app, so there is no local database to run and no schema to apply. Documents you ingest locally land in the shared store. Without `SUPABASE_URL` the UI still loads, but retrieval and history fail; the startup summary says so.
-- `--fake-embed` disables ingestion entirely, so placeholder vectors can never be written into the shared knowledge base.
+- It loads the repo `.env` and uses the **same Supabase over the REST API** as the deployed app, so there is no local database to run and no schema to apply. Without `SUPABASE_URL` the UI still loads, but retrieval and history fail; the startup summary says so.
+- **Local runs are read-only by default and cannot affect the live app.** Retrieval, knowledge-base reads and history reads work normally, but analytics, saved conversations, feedback, subscribers, feature requests and document ingestion are all no-ops. A local session never appears in production usage numbers and never adds documents to the live store. The startup summary states which mode you are in.
+- Pass `--write` when you deliberately want a local run to persist to the shared store. `--fake-embed` still blocks ingestion even then, because hashed placeholder vectors must never be written.
 - Any OpenAI-compatible server works: point `LOCAL_LLM_BASE_URL` at llama.cpp, LM Studio, or a local vLLM instead of Ollama. The 32B GGUF works the same way if you have the memory for it.
 - The first real query downloads `nomic-embed-text-v1.5` (roughly 550 MB) and runs it on CPU, so it is slow once and fast afterwards. `--fake-embed` skips that entirely.
 
