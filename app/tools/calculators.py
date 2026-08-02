@@ -19,6 +19,42 @@ def _round(x, n=4):
         return x
 
 
+# --- plot series ------------------------------------------------------------
+# Calculators whose natural output is a curve also return an optional "series"
+# key so the UI can draw the chart without re-implementing any physics in
+# JavaScript. Shape: {"x": [...], "y": [...], "x_label", "y_label", "title"}.
+# It is strictly additive: degenerate inputs simply omit "series", never raise,
+# and no existing key, formula, or signature changes.
+
+_SERIES_POINTS = 41  # 40 intervals, dense enough to look smooth, small in JSON
+
+
+def _linspace(a: float, b: float, n: int = _SERIES_POINTS) -> list[float]:
+    """Evenly spaced points from a to b inclusive. Deterministic."""
+    if n < 2:
+        return [float(a)]
+    step = (float(b) - float(a)) / (n - 1)
+    return [float(a) + step * i for i in range(n)]
+
+
+def _series(xs, ys, x_label: str, y_label: str, title: str):
+    """JSON-safe plot series, or None if anything is degenerate or non-finite."""
+    try:
+        if not xs or not ys or len(xs) != len(ys):
+            return None
+        out_x: list[float] = []
+        out_y: list[float] = []
+        for x, y in zip(xs, ys):
+            fx, fy = float(x), float(y)
+            if not (math.isfinite(fx) and math.isfinite(fy)):
+                return None
+            out_x.append(round(fx, 6))
+            out_y.append(round(fy, 6))
+        return {"x": out_x, "y": out_y, "x_label": x_label, "y_label": y_label, "title": title}
+    except Exception:
+        return None
+
+
 def arps_decline(qi: float, Di: float, t: float, b: float = 0.0) -> dict:
     """Arps decline. qi=initial rate, Di=nominal decline (per time unit), t=time, b: 0 exp, 1 harmonic, else hyperbolic."""
     qi, Di, t, b = float(qi), float(Di), float(t), float(b)
@@ -34,8 +70,29 @@ def arps_decline(qi: float, Di: float, t: float, b: float = 0.0) -> dict:
         q = qi / ((1 + b * Di * t) ** (1.0 / b))
         Np = (qi ** b / ((1 - b) * Di)) * (qi ** (1 - b) - q ** (1 - b)) if Di and b != 1 else 0.0
         formula = r"q = q_i / (1 + b D_i t)^{1/b}"
-    return {"rate_q": _round(q), "cumulative_Np": _round(Np), "formula": formula,
-            "units": {"rate_q": "same as qi", "cumulative_Np": "qi x time"}}
+    out = {"rate_q": _round(q), "cumulative_Np": _round(Np), "formula": formula,
+           "units": {"rate_q": "same as qi", "cumulative_Np": "qi x time"}}
+    # Decline curve: rate against time, 0 to t (or ~3 time constants if t is 0).
+    try:
+        if Di > 0 and qi > 0:
+            t_end = t if t > 0 else 3.0 / Di
+            if t_end > 0:
+                xs = _linspace(0.0, t_end)
+                if b == 0:
+                    ys = [qi * math.exp(-Di * x) for x in xs]
+                    kind = "exponential"
+                elif b == 1:
+                    ys = [qi / (1 + Di * x) for x in xs]
+                    kind = "harmonic"
+                else:
+                    ys = [qi / ((1 + b * Di * x) ** (1.0 / b)) for x in xs]
+                    kind = f"hyperbolic, b={b:g}"
+                s = _series(xs, ys, "Time t", "Rate q", f"Arps decline curve ({kind})")
+                if s:
+                    out["series"] = s
+    except Exception:
+        pass
+    return out
 
 
 def ooip_volumetric(area_acres: float, thickness_ft: float, porosity: float,
@@ -65,6 +122,17 @@ def vogel_ipr(q_test: float, pwf_test: float, pr: float, pwf_target: float | Non
     if pwf_target is not None:
         xt = float(pwf_target) / pr
         out["rate_at_pwf_target"] = _round(qmax * (1 - 0.2 * xt - 0.8 * xt * xt))
+    # IPR curve: rate against flowing bottomhole pressure, 0 to reservoir pressure.
+    try:
+        if pr > 0 and math.isfinite(qmax) and qmax > 0:
+            xs = _linspace(0.0, pr)
+            ys = [qmax * (1 - 0.2 * (p / pr) - 0.8 * (p / pr) ** 2) for p in xs]
+            s = _series(xs, ys, "Flowing bottomhole pressure Pwf (psi)", "Rate q",
+                        "Vogel IPR curve")
+            if s:
+                out["series"] = s
+    except Exception:
+        pass
     return out
 
 
@@ -121,6 +189,17 @@ def productivity_index(q_test: float, pr_psi: float, pwf_test: float, pwf_target
            "formula": r"J = q/(\bar P_r - P_{wf});\ q = J(\bar P_r - P_{wf})", "units": {"J_STB_per_day_psi": "STB/d/psi"}}
     if pwf_target is not None:
         out["rate_at_pwf_target"] = _round(J * (pr - float(pwf_target)))
+    # Straight-line IPR: rate against flowing bottomhole pressure, 0 to Pr.
+    try:
+        if pr > 0 and math.isfinite(J) and J > 0:
+            xs = _linspace(0.0, pr)
+            ys = [J * (pr - p) for p in xs]
+            s = _series(xs, ys, "Flowing bottomhole pressure Pwf (psi)", "Rate q (STB/day)",
+                        "Straight-line IPR")
+            if s:
+                out["series"] = s
+    except Exception:
+        pass
     return out
 
 
@@ -129,8 +208,23 @@ def arps_eur_exponential(qi: float, D_per_year: float, q_abandon: float) -> dict
     qi, D, qa = float(qi), float(D_per_year), float(q_abandon)
     eur = (qi - qa) / D if D else 0.0
     t = math.log(qi / qa) / D if (D and qa) else 0.0
-    return {"EUR": _round(eur), "years_to_limit": _round(t),
-            "formula": r"EUR = (q_i - q_a)/D;\ t = \ln(q_i/q_a)/D", "units": {"EUR": "rate x year", "years_to_limit": "years"}}
+    out = {"EUR": _round(eur), "years_to_limit": _round(t),
+           "formula": r"EUR = (q_i - q_a)/D;\ t = \ln(q_i/q_a)/D",
+           "units": {"EUR": "rate x year", "years_to_limit": "years"}}
+    # Decline profile: rate against time, initial rate down to the abandonment rate.
+    try:
+        if D > 0 and qi > 0 and qa > 0 and qi > qa:
+            t_end = math.log(qi / qa) / D
+            if t_end > 0:
+                xs = _linspace(0.0, t_end)
+                ys = [qi * math.exp(-D * x) for x in xs]
+                s = _series(xs, ys, "Time (years)", "Rate q",
+                            "Exponential decline to the abandonment rate")
+                if s:
+                    out["series"] = s
+    except Exception:
+        pass
+    return out
 
 
 def recovery_factor(np_stb: float, ooip_stb: float) -> dict:
