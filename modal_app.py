@@ -5,11 +5,14 @@
     modal run    modal_app.py::seed  # seed the KB with authoritative Nigerian docs
 
 Components:
-  * LLMService  — vLLM OpenAI-compatible server for naija-petro-8b (A10G)
-  * Encoders    — nomic embeddings + bge reranker (small GPU)
-  * enrich()    — background ingestion job (the "self-update after every query")
-  * fastapi_app — the web front door (ASGI), with GPU work injected as deps
-  * seed()      — one-off knowledge-base seeding
+  * LLMService  - vLLM OpenAI-compatible server for naija-petro-8b (one L4 by default)
+  * Encoders    - nomic embeddings + optional bge reranker (CPU by default)
+  * enrich()    - background ingestion job (the "self-update after every query")
+  * fastapi_app - the web front door (ASGI), with GPU work injected as deps
+  * seed()      - one-off knowledge-base seeding
+
+Deploys go to the ACTIVE Modal profile's workspace: check `modal profile list`
+before deploying if you have more than one.
 """
 from __future__ import annotations
 

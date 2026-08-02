@@ -73,7 +73,7 @@ Live app: **https://naija-petro.shinzii.tech** (also at `https://peniel-tish--na
 
 ## How a query flows
 
-1. Embed the query with `nomic-embed-text-v1.5` (on CPU) and run hybrid retrieval over Supabase pgvector (vectors plus full-text, fused with RRF).
+1. Embed the query with `nomic-embed-text-v1.5` (on CPU) and run hybrid retrieval over Supabase pgvector (vectors plus full-text, fused with RRF, executed as a Postgres function over the REST API).
 2. Score local coverage. If it is weak, fetch live: Tavily search biased to authoritative Nigerian domains, clean to markdown (`trafilatura` for HTML, `pymupdf4llm` for PDF), structure-aware chunking, embed, upsert with SHA-256 dedup, then re-retrieve. A background job also enriches after every query.
 3. If the question is computational, a calculator is selected and the exact result is injected so the answer reports verified figures.
 4. The 8B model, served with vLLM on Modal (OpenAI-compatible, streaming), answers with inline citations.
@@ -81,7 +81,7 @@ Live app: **https://naija-petro.shinzii.tech** (also at `https://peniel-tish--na
 
 ### Stack
 
-`Modal` (serverless GPU) · `vLLM` · `FastAPI` (SSE streaming) · self-hosted `Supabase` and `pgvector` on Railway · `nomic-embed-text-v1.5` · `Tavily` · `trafilatura` / `pymupdf4llm` · `Langfuse` · `Tailwind` and `Alpine` frontend with `KaTeX`.
+`Modal` (serverless GPU) · `vLLM` · `FastAPI` (SSE streaming) · self-hosted `Supabase` and `pgvector` over the REST API · `nomic-embed-text-v1.5` · `Tavily` · `trafilatura` / `pymupdf4llm` · `Langfuse` · `Tailwind` and `Alpine` frontend with `KaTeX`.
 
 ## Repository layout
 
@@ -101,7 +101,9 @@ naija-petro/
 │   ├── frontend/index.html         streaming chat UI
 │   ├── config.py                   env-driven settings + system prompt
 │   └── observability.py            Langfuse tracing (best-effort)
-├── supabase/schema.sql   pgvector schema, hybrid_search RPC, analytics, feedback, history
+├── supabase/
+│   ├── schema.sql                  pgvector schema, hybrid_search RPC, analytics, feedback, history
+│   └── migrations/                 incremental SQL applied to an existing database
 ├── hf_cards/             Hugging Face model and dataset cards
 ├── scripts/              scrub_notebooks, push_cards, seed_kb, setup_modal_secret, export_feedback
 ├── .env.example          all configuration and secrets (copy to .env)
@@ -116,7 +118,8 @@ cd naija-petro
 cp .env.example .env            # fill in your keys (see the file for each one)
 pip install -r requirements.txt
 
-# 1) Provision the vector store + analytics (run once against your Postgres)
+# 1) Provision the vector store + analytics (run once)
+#    Paste supabase/schema.sql into the Supabase Studio SQL editor, or:
 psql "$SUPABASE_DB_URL" -f supabase/schema.sql
 
 # 2) Authenticate Modal and push your .env into a Modal secret
@@ -132,9 +135,12 @@ python scripts/seed_kb.py
 ```
 
 Notes:
-- This connects to Postgres over the direct `SUPABASE_DB_URL`, which works for a Railway-hosted Supabase or Postgres as well as a self-hosted Supabase. The connection uses TLS when offered and falls back to plaintext (what Railway's TCP proxy needs). Use the public connection URL, not a `*.railway.internal` host.
+- The running app reaches the store over the **Supabase REST (PostgREST) API**: `SUPABASE_URL` plus `SUPABASE_SERVICE_ROLE_KEY`, with every call pinned to `SUPABASE_DB_SCHEMA` through the `Accept-Profile` and `Content-Profile` headers. Vector search and the KB counts run as Postgres functions exposed as RPC. No database port needs to be reachable from Modal.
+- `SUPABASE_DB_URL` is only used by the offline admin scripts (`scripts/seed_tokens.py`) and to apply SQL with `psql`. The app itself never opens a direct Postgres connection.
+- One Supabase instance can host several apps: each gets its own schema (`SUPABASE_DB_SCHEMA`, default `naija_petro`). Functions in a non-public schema must pin their own `search_path`, which `schema.sql` does; otherwise PostgREST calls fail with `relation "documents" does not exist`.
 - After changing `app/` code, a warm container can keep serving the old code. Force fresh containers with `modal app stop naija-petro --yes` then redeploy.
 - `pgvector` must be enabled on the database; the schema runs `CREATE EXTENSION IF NOT EXISTS vector`.
+- Modal deploys into the **active profile's workspace**. If you keep several profiles, run `modal profile list` and activate the right one before deploying, or you will create a second app under a different URL.
 
 ## Configuration
 
@@ -142,7 +148,9 @@ All settings live in `.env` (see [`.env.example`](.env.example)). The essentials
 
 | Variable | Purpose |
 |---|---|
-| `SUPABASE_DB_URL` | Postgres connection (vector store, analytics, history). Public URL. |
+| `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | Supabase REST endpoint and service-role key. This is how the app reads and writes the vector store, analytics, and history. |
+| `SUPABASE_DB_SCHEMA` | Postgres schema holding this app's tables and functions (default `naija_petro`). |
+| `SUPABASE_DB_URL` | Direct Postgres URL. Only for applying SQL and the offline admin scripts, not for the running app. |
 | `TAVILY_API_KEY` | Live web retrieval of Nigerian sources. |
 | `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` | Prompt and RAG tracing. |
 | `HF_TOKEN` | Pushing the Hugging Face cards (`scripts/push_cards.py`). |
