@@ -37,7 +37,7 @@ except Exception:                       # dotenv is optional if the env is alrea
 
 import httpx  # noqa: E402
 
-from app.rag.sources import is_blocked, is_english  # noqa: E402
+from app.rag.sources import is_blocked, is_english, is_petroleum_relevant  # noqa: E402
 
 # Titles that identify a page carrying no engineering content. Matched case
 # insensitively against the title only, so a report that merely mentions cookies
@@ -75,6 +75,11 @@ def reason_to_drop(doc: dict) -> str | None:
     for marker in JUNK_TITLE_MARKERS:
         if marker in low:
             return f"boilerplate page ({marker})"
+    # Off topic entirely. Domain-restricted search against a broad institution
+    # returns its closest match whatever the question, which is how survey
+    # methodology manuals and development blog posts ended up in a petroleum store.
+    if content and not is_petroleum_relevant(content, title):
+        return "off topic"
     return None
 
 

@@ -38,9 +38,48 @@ NIGERIAN_SOURCES: dict[str, tuple[str, int]] = {
     "oilprice.com":        ("OilPrice.com", 3),
 }
 
+# Broad institutions that publish across every sector. A domain-restricted search
+# always returns its best match, so asking one of these about a petroleum topic
+# returns whatever it has that is closest, which for a development bank is a blog
+# post about survey methodology. They stay in the tier map above, so they are
+# labelled correctly when they legitimately turn up in the open web pass, but they
+# are not searched directly. This had put roughly 28 World Bank documents into the
+# store, of which one was about petroleum.
+BROAD_INSTITUTIONS: frozenset = frozenset({"worldbank.org"})
+
 # Domains preferred for the initial Tavily pass (Tier 1 + 2). News (tier 3) is
 # allowed on the broad fallback pass so fresh developments are still captured.
-PREFERRED_DOMAINS: list[str] = [d for d, (_, t) in NIGERIAN_SOURCES.items() if t <= 2]
+PREFERRED_DOMAINS: list[str] = [
+    d for d, (_, t) in NIGERIAN_SOURCES.items() if t <= 2 and d not in BROAD_INSTITUTIONS
+]
+
+# A document has to actually be about this subject. Domain-restricted search, a
+# mis-parsed PDF, or a page that merely mentions Nigeria will otherwise be stored
+# and retrieved forever.
+_PETROLEUM_TERMS = (
+    "petroleum", "oil", "gas", "reservoir", "drilling", "well", "wellbore", "hydrocarbon",
+    "crude", "upstream", "downstream", "midstream", "refinery", "refining", "opec",
+    "permeability", "porosity", "seismic", "completion", "production", "barrel", "bopd",
+    "formation", "pipeline", "lng", "flaring", "eor", "pvt", "geology", "subsurface",
+    "offshore", "onshore", "licence", "license", "lease", "royalty", "condensate",
+)
+
+
+def is_petroleum_relevant(text: str, title: str = "", sample: int = 200_000,
+                          min_terms: int = 4) -> bool:
+    """True when the text is plausibly about petroleum, gas or its regulation.
+
+    Deliberately generous: a real regulatory or engineering document trips this
+    many times over, while a survey-methodology manual or a blog post about
+    remittances trips almost none.
+
+    It reads the whole document, not the opening. Article pages routinely begin
+    with a sign-in menu, social links and a cookie banner, so a head-only sample
+    judged a JPT paper on Nigerian deepwater fiscal terms and an IEA analysis of
+    enhanced oil recovery to be off topic, which is exactly backwards.
+    """
+    body = f"{title}\n{(text or '')[:sample]}".lower()
+    return sum(1 for term in _PETROLEUM_TERMS if term in body) >= min_terms
 
 
 # Domains that are never worth citing in an engineering answer: video, homework
@@ -50,6 +89,7 @@ PREFERRED_DOMAINS: list[str] = [d for d, (_, t) in NIGERIAN_SOURCES.items() if t
 BLOCKED_DOMAINS: frozenset = frozenset({
     "youtube.com", "youtu.be", "vimeo.com", "tiktok.com", "facebook.com",
     "instagram.com", "x.com", "twitter.com", "reddit.com", "pinterest.com",
+    "linkedin.com", "medium.com", "quora.com",
     "chegg.com", "coursehero.com", "quizlet.com", "studocu.com", "scribd.com",
     "brainly.com", "numerade.com", "toolgrit.com", "calculator.net",
     "slideshare.net", "academia.edu", "researchgate.net",

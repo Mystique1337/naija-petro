@@ -17,7 +17,14 @@ import httpx
 from app.config import settings
 from app.rag import db
 from app.rag.chunking import chunk_text
-from app.rag.sources import PREFERRED_DOMAINS, classify, domain_of, is_blocked, is_english
+from app.rag.sources import (
+    PREFERRED_DOMAINS,
+    classify,
+    domain_of,
+    is_blocked,
+    is_english,
+    is_petroleum_relevant,
+)
 
 EmbedFn = Callable[[list[str], str], Awaitable[list[list[float]]]]
 
@@ -127,6 +134,8 @@ async def _ingest_one(result: dict, embed_fn: EmbedFn) -> dict:
         return {"inserted": False, "chunk_count": 0, "url": url}
     if not is_english(content):
         return {"inserted": False, "chunk_count": 0, "url": url, "reason": "not english"}
+    if not is_petroleum_relevant(content, result.get("title") or ""):
+        return {"inserted": False, "chunk_count": 0, "url": url, "reason": "off topic"}
 
     chash = _hash(content)
     if await db.document_exists(chash):
