@@ -17,7 +17,7 @@ import httpx
 from app.config import settings
 from app.rag import db
 from app.rag.chunking import chunk_text
-from app.rag.sources import PREFERRED_DOMAINS, classify, domain_of
+from app.rag.sources import PREFERRED_DOMAINS, classify, domain_of, is_blocked, is_english
 
 EmbedFn = Callable[[list[str], str], Awaitable[list[list[float]]]]
 
@@ -113,6 +113,8 @@ async def _ingest_one(result: dict, embed_fn: EmbedFn) -> dict:
     url = result.get("url", "")
     if not url:
         return {"inserted": False, "chunk_count": 0, "url": url}
+    if is_blocked(url):
+        return {"inserted": False, "chunk_count": 0, "url": url, "reason": "blocked domain"}
 
     # Prefer Tavily's raw_content; fall back to fetching + extracting ourselves.
     content = (result.get("raw_content") or "").strip()
@@ -123,6 +125,8 @@ async def _ingest_one(result: dict, embed_fn: EmbedFn) -> dict:
     content = _normalise(content)
     if len(content) < 200:  # too thin to be useful
         return {"inserted": False, "chunk_count": 0, "url": url}
+    if not is_english(content):
+        return {"inserted": False, "chunk_count": 0, "url": url, "reason": "not english"}
 
     chash = _hash(content)
     if await db.document_exists(chash):

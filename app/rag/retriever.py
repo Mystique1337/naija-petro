@@ -48,6 +48,31 @@ def _coverage(rows: list[dict]) -> float:
     return max((float(r.get("similarity") or 0.0) for r in rows), default=0.0)
 
 
+def _cap_per_source(rows: list[dict], max_per_source: int, final_k: int) -> list[dict]:
+    """Keep the best `final_k` rows, but no more than `max_per_source` per document.
+
+    A 700 chunk PDF has 700 chances to rank and routinely took every slot, so the
+    answer cited one magazine or manual repeatedly no matter what was asked. Rows
+    stay in relevance order; over-quota chunks are held back and only used to fill
+    the tail if there is nothing else, so a genuinely single-source question still
+    gets a full context.
+    """
+    if max_per_source <= 0:
+        return rows[:final_k]
+    counts: dict = {}
+    kept, overflow = [], []
+    for r in rows:
+        key = r.get("document_id") or r.get("source_url") or r.get("title") or ""
+        if counts.get(key, 0) < max_per_source:
+            counts[key] = counts.get(key, 0) + 1
+            kept.append(r)
+            if len(kept) == final_k:
+                return kept
+        else:
+            overflow.append(r)
+    return (kept + overflow)[:final_k]
+
+
 def is_weak(rows: list[dict]) -> bool:
     """Local knowledge is insufficient → we should fetch live."""
     if len(rows) < settings.min_chunks:
@@ -85,7 +110,7 @@ async def retrieve(query: str, embed_fn: EmbedFn, rerank_fn: RerankFn | None = N
             rows = [rows[i] for i in order]
             reranked = True
 
-    top = rows[: settings.final_k]
+    top = _cap_per_source(rows, settings.max_per_source, settings.final_k)
     return RetrieveResult(
         chunks=_rows_to_chunks(top),
         coverage=coverage,

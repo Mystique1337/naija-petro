@@ -11,6 +11,7 @@ from dataclasses import dataclass
 import pytest
 
 from app.rag import db, ingest, retriever
+from app.rag.retriever import _cap_per_source
 from app.rag.prompts import RetrievedChunk
 
 
@@ -21,6 +22,7 @@ class FakeSettings:
     coverage_threshold: float = 0.55
     top_k: int = 10
     final_k: int = 4
+    max_per_source: int = 3
 
 
 @pytest.fixture(autouse=True)
@@ -214,3 +216,42 @@ def test_rows_are_mapped_with_safe_defaults(monkeypatch):
     assert (c.content, c.source_url, c.title, c.domain) == ("bare row", "", "", "")
     assert c.source_tier == 3
     assert c.score == 0.0 and c.similarity == 0.0
+
+
+# --------------------------------------------------------------------------- #
+# _cap_per_source: a long PDF has hundreds of chances to rank and used to take
+# every slot, so answers cited one magazine or manual over and over
+# --------------------------------------------------------------------------- #
+def _row(doc_id, i):
+    return {"document_id": doc_id, "content": f"chunk {i}", "source_url": f"http://x/{doc_id}"}
+
+
+def test_cap_per_source_limits_one_document():
+    rows = [_row("A", i) for i in range(12)]
+    kept = _cap_per_source(rows, 3, 12)
+    assert sum(1 for r in kept if r["document_id"] == "A") == 12  # overflow backfills
+    assert [r["content"] for r in kept[:3]] == ["chunk 0", "chunk 1", "chunk 2"]
+
+
+def test_cap_per_source_prefers_diverse_documents():
+    rows = [_row("A", 0), _row("A", 1), _row("A", 2), _row("A", 3), _row("B", 0), _row("C", 0)]
+    kept = _cap_per_source(rows, 2, 4)
+    docs = [r["document_id"] for r in kept]
+    assert docs.count("A") == 2
+    assert "B" in docs and "C" in docs
+
+
+def test_cap_per_source_returns_final_k_at_most():
+    rows = [_row(str(i), 0) for i in range(20)]
+    assert len(_cap_per_source(rows, 3, 12)) == 12
+
+
+def test_cap_per_source_disabled_when_zero():
+    rows = [_row("A", i) for i in range(5)]
+    assert _cap_per_source(rows, 0, 3) == rows[:3]
+
+
+def test_cap_per_source_falls_back_to_source_url():
+    rows = [{"source_url": "http://a", "content": str(i)} for i in range(5)]
+    kept = _cap_per_source(rows, 2, 3)
+    assert len(kept) == 3

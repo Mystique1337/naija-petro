@@ -72,6 +72,10 @@ class Settings:
     min_chunks: int = _i("RAG_MIN_CHUNKS", 3)
     top_k: int = _i("RAG_TOP_K", 35)             # candidates pulled from the store
     final_k: int = _i("RAG_FINAL_K", 12)         # passages kept for the answer
+    # Most chunks any single document may contribute to one answer. Long PDFs
+    # (magazines, manuals, standards) otherwise win most of the top-k on their own
+    # and the answer ends up citing one source over and over.
+    max_per_source: int = _i("RAG_MAX_PER_SOURCE", 3)
     tavily_max_results: int = _i("TAVILY_MAX_RESULTS", 10)
     # Hard cap on context characters fed to the model (protects the window + cost
     # even when many sources are retrieved).

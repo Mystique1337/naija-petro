@@ -8,6 +8,8 @@ from app.rag.sources import (
     PREFERRED_DOMAINS,
     classify,
     domain_of,
+    is_blocked,
+    is_english,
     is_nigeria_relevant,
 )
 
@@ -135,3 +137,52 @@ def test_is_nigeria_relevant_is_case_insensitive(text):
 ])
 def test_is_nigeria_relevant_rejects_generic_text(text):
     assert is_nigeria_relevant(text) is False
+
+
+# --------------------------------------------------------------------------- #
+# is_blocked: junk that the open-web pass surfaces and must never be ingested
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize("url", [
+    "https://www.youtube.com/watch?v=abc123",
+    "https://youtu.be/abc123",
+    "https://www.chegg.com/homework-help/solved-calculate-hydrostatic",
+    "https://www.coursehero.com/file/1234/notes",
+    "https://toolgrit.com/hydrostatic-pressure-calculator",
+    "https://www.scribd.com/document/999",
+    "",
+])
+def test_is_blocked_rejects_junk(url):
+    assert is_blocked(url) is True
+
+
+@pytest.mark.parametrize("url", [
+    "https://www.nuprc.gov.ng/regulations",
+    "https://www.eia.gov/international/analysis/country/NGA",
+    "https://onepetro.org/paper/SPE-1234",
+    "https://ngfcp.nuprc.gov.ng/wp-content/uploads/pia.pdf",
+])
+def test_is_blocked_allows_real_sources(url):
+    assert is_blocked(url) is False
+
+
+# --------------------------------------------------------------------------- #
+# is_english: a Chinese edition of the SPE guidelines became the largest
+# document in the store and was retrieved for ordinary English questions
+# --------------------------------------------------------------------------- #
+def test_is_english_accepts_english_technical_prose():
+    text = ("The material balance equation for an undersaturated reservoir assumes "
+            "negligible gas cap expansion and uniform pressure across the drainage area.")
+    assert is_english(text) is True
+
+
+def test_is_english_rejects_chinese_document():
+    assert is_english("石油资源管理系统应用指南 " * 40) is False
+
+
+def test_is_english_tolerates_a_few_foreign_characters():
+    text = "Reservoir simulation results " * 30 + " 石油"
+    assert is_english(text) is True
+
+
+def test_is_english_rejects_text_with_no_letters():
+    assert is_english("1234 5678 ... ---") is False

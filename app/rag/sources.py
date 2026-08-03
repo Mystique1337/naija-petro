@@ -43,6 +43,54 @@ NIGERIAN_SOURCES: dict[str, tuple[str, int]] = {
 PREFERRED_DOMAINS: list[str] = [d for d, (_, t) in NIGERIAN_SOURCES.items() if t <= 2]
 
 
+# Domains that are never worth citing in an engineering answer: video, homework
+# and answer-mill sites, SEO calculator pages, and social platforms. The broad
+# open-web Tavily pass surfaces these, and they had already put YouTube listings
+# and a Chegg "Solved..." page into the knowledge base.
+BLOCKED_DOMAINS: frozenset = frozenset({
+    "youtube.com", "youtu.be", "vimeo.com", "tiktok.com", "facebook.com",
+    "instagram.com", "x.com", "twitter.com", "reddit.com", "pinterest.com",
+    "chegg.com", "coursehero.com", "quizlet.com", "studocu.com", "scribd.com",
+    "brainly.com", "numerade.com", "toolgrit.com", "calculator.net",
+    "slideshare.net", "academia.edu", "researchgate.net",
+})
+
+
+def is_blocked(url: str) -> bool:
+    """True for sources that should never enter the knowledge base."""
+    host = domain_of(url)
+    if not host:
+        return True
+    return any(host == d or host.endswith("." + d) for d in BLOCKED_DOMAINS)
+
+
+# Characters from scripts this assistant does not answer in. A document full of
+# them is a translated edition that pollutes retrieval with unreadable context.
+_NON_LATIN = (
+    (0x0400, 0x04FF),    # Cyrillic
+    (0x0590, 0x06FF),    # Hebrew, Arabic
+    (0x3040, 0x30FF),    # Hiragana, Katakana
+    (0x3400, 0x4DBF),    # CJK extension A
+    (0x4E00, 0x9FFF),    # CJK unified
+    (0xAC00, 0xD7AF),    # Hangul
+)
+
+
+def is_english(text: str, sample: int = 4000, threshold: float = 0.03) -> bool:
+    """Cheap script check: reject text with a meaningful share of non-Latin script.
+
+    A Chinese edition of the SPE reserves guidelines was ingested and became the
+    single largest document in the store, so it was retrieved for ordinary English
+    questions and fed back as context the model could not use.
+    """
+    head = (text or "")[:sample]
+    letters = [c for c in head if c.isalpha()]
+    if not letters:
+        return False
+    hits = sum(1 for c in letters if any(lo <= ord(c) <= hi for lo, hi in _NON_LATIN))
+    return (hits / len(letters)) < threshold
+
+
 def domain_of(url: str) -> str:
     try:
         host = urlparse(url).netloc.lower()
