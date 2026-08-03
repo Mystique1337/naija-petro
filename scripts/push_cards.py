@@ -30,22 +30,43 @@ CARDS = {
 }
 
 
+class CardError(Exception):
+    """A problem with the cards on disk, reported as one line rather than a traceback."""
+
+
+def die(message: str) -> int:
+    print(f"error: {message}", file=sys.stderr)
+    return 1
+
+
 def validate() -> list[tuple[Path, str]]:
     plan = []
+    problems: list[str] = []
     for fname, repo in CARDS.items():
         path = CARDS_DIR / fname
         if not path.exists():
-            raise FileNotFoundError(f"Missing card: {path}")
-        text = path.read_text()
+            problems.append(f"missing card: {path}")
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            problems.append(f"{fname}: cannot read ({exc})")
+            continue
         if not text.lstrip().startswith("---"):
-            raise ValueError(f"{fname}: missing YAML front matter")
+            problems.append(f"{fname}: missing YAML front matter")
+            continue
         plan.append((path, f"{HF_USER}/{repo}"))
+    if problems:
+        raise CardError("; ".join(problems))
     return plan
 
 
 def main() -> int:
     dry = "--dry-run" in sys.argv
-    plan = validate()
+    try:
+        plan = validate()
+    except CardError as exc:
+        return die(str(exc))
 
     print(f"Cards directory: {CARDS_DIR}")
     for path, repo in plan:
@@ -58,20 +79,29 @@ def main() -> int:
 
     token = os.environ.get("HF_TOKEN")
     if not token:
-        print("ERROR: HF_TOKEN not set. Add it to .env or export it, then retry.", file=sys.stderr)
-        return 1
+        return die("HF_TOKEN not set. Add it to .env or export it, then retry.")
 
-    from huggingface_hub import HfApi
+    try:
+        from huggingface_hub import HfApi
+    except ImportError:
+        return die("the 'huggingface_hub' package is not installed. Run: pip install huggingface_hub")
+
     api = HfApi(token=token)
     for path, repo in plan:
-        api.upload_file(
-            path_or_fileobj=path.read_bytes(),
-            path_in_repo="README.md",
-            repo_id=repo,
-            repo_type="model",
-            commit_message="Update model card (standardized)",
-        )
-        print(f"  ✓ pushed {path.name} -> https://huggingface.co/{repo}")
+        try:
+            api.upload_file(
+                path_or_fileobj=path.read_bytes(),
+                path_in_repo="README.md",
+                repo_id=repo,
+                repo_type="model",
+                commit_message="Update model card (standardized)",
+            )
+        except Exception as exc:
+            # Hub errors can quote the request; strip anything that looks like the
+            # token before it reaches the terminal or a CI log.
+            detail = str(exc).replace(token, "<HF_TOKEN>")
+            return die(f"upload of {path.name} to {repo} failed: {type(exc).__name__}: {detail}")
+        print(f"  pushed {path.name} -> https://huggingface.co/{repo}")
     print("\nDone.")
     return 0
 

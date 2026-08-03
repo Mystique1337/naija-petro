@@ -1,0 +1,10 @@
+# The repo-root .gitignore excludes *.jsonl everywhere (it is aimed at training-data
+# artifacts). questions.jsonl is source, not an artifact: without this re-include it is
+# silently untracked, and a fresh clone gets run_eval.py with nothing to run it against.
+# A pattern in a lower-level .gitignore overrides the higher-level one, and eval/ itself
+# is not excluded, so this re-include takes effect.
+!questions.jsonl
+
+# Run outputs. Each run writes <name>.json, <name>.jsonl and <name>.md here, containing
+# full model answers and judge justifications. Regenerable, sometimes large, not source.
+results/

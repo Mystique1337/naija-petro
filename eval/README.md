@@ -6,6 +6,38 @@ better, and by how much on which axis?**
 
 Everything here is offline until you point it at a target. Nothing runs automatically.
 
+## Read this before you run anything: it costs money
+
+**Every question scored against the deployed app is one GPU generation on metered Modal credits.**
+There is no free tier here and the credit balance on this project is limited, so a full
+73-question `--kind app` run is a real, non-recoverable spend, and re-running it because a flag
+was wrong spends it again. Judge tokens are cheap by comparison; generation is the bill.
+
+**Prefer a local endpoint.** Anything that is not specifically measuring the deployed retrieval
+layer should run against a local OpenAI-compatible server, which costs nothing:
+
+```bash
+--kind openai --url http://localhost:11434/v1 --model qwen3:8b     # Ollama
+--kind openai --url http://localhost:8000/v1  --model naija-petro-8b  # vLLM
+```
+
+Base against fine-tuned, prompt changes, rubric changes, judge changes and every smoke test are
+local-endpoint work. `--kind app` is only justified when the claim under test is about retrieval,
+citations or Nigeria-specific recall in the deployed system.
+
+When the app genuinely is the thing under test, in this order:
+
+1. `--dry-run` to see the exact prompts. It makes no network call and spends nothing.
+2. `--limit 10 --control-probe 3` as a shakedown, and read the sanity verdict.
+3. Only then the full run, with `--concurrency 2` at most and `--resume` so a crash does not
+   make you pay for the same answers twice.
+4. Set `--token-env` to an access token variable, or the anonymous free daily limit stops the
+   run after 10 questions and you pay for a partial result.
+
+The runner refuses to start if the judge API key is missing, because without a judge every
+answer would be generated, paid for, and then thrown away. Override deliberately with
+`--allow-missing-judge-key` only if your judge endpoint really needs no key.
+
 ## Contents
 
 | File | Purpose |
@@ -142,6 +174,13 @@ within `rel_tolerance`. It accepts the target expressed at a shifted magnitude (
 billions) or as a fraction rather than a percentage, since `223 MMSTB` and `0.218` are correct
 answers, and records which scale matched so a reviewer can see what was accepted.
 
+Because every number in the answer is a candidate, a coincidental hit is possible: an answer that
+mentions the PIA 2021 and a section number has already put two numbers on the table. The report's
+`In band` column counts how many candidates fell inside the tolerance at any scale. A value above
+1 means the pass was not unique and the answer is worth reading. `rel_tolerance` is validated and
+capped at 0.5, since a band wider than that is not a check, and a `numeric_answer` of exactly zero
+is graded against an absolute band rather than a relative one.
+
 ### Pairwise mode
 
 `pairwise` puts two systems on the same question and asks the judge to pick a winner. The two
@@ -262,6 +301,7 @@ the first request cold-starts for a minute or two.
 | `--judge-temperature` | Default 0.0. Raise only if you want to measure judge variance itself |
 | `--judge-retries`, `--judge-timeout` | Judge retry budget and per call timeout |
 | `--judge-thinking on/off` | Nemotron models take a `detailed thinking on/off` system line. Default `off` |
+| `--allow-missing-judge-key` | Run even though the judge key variable is unset. Off by default: without a judge, every answer is generated, paid for and discarded |
 
 ### Target flags
 
@@ -288,14 +328,23 @@ Per full 73-question `single` run:
   carries the rubric, the checklist and the answer. At typical hosted prices for a mid-sized model
   that is cents rather than dollars, and on the NVIDIA build tier it is credits. `--control-probe 5`
   adds five more judge calls.
-- **Generation** dominates. 73 answers of up to 1,400 tokens each is roughly 30 to 60 minutes of GPU
-  time at `--concurrency 2`, plus one cold start. Against the deployed app on a capped L4 that is
-  the whole bill. Locally with Ollama it is free but slower.
+- **Generation dominates, and against `--kind app` it is Modal GPU time you are paying for by the
+  second.** 73 answers of up to 1,400 tokens each is roughly 30 to 60 minutes of L4 time at
+  `--concurrency 2`, plus a cold start of one to two minutes. Modal credits on this project are
+  limited, so treat a full app run as a deliberate decision, not a default. The same 73 answers
+  from a local Ollama or vLLM endpoint cost nothing and are the right target for every comparison
+  that is not specifically about the deployed retrieval layer.
 - A `pairwise` run generates from both systems, so roughly double the generation and about half the
-  judge tokens of two `single` runs.
+  judge tokens of two `single` runs. A pairwise run with the app on one side is the most expensive
+  thing in this directory.
+
+Cheap by construction and safe to run as often as you like: `validate`, `compare`, and any
+`--dry-run`. None of the three touches the network.
 
 Use `--limit 10 --control-probe 3` for a shakedown before committing to a full run, and `--resume`
-so nothing is paid for twice.
+so nothing is paid for twice. `--resume` only reuses records for the questions and the system name
+selected on this run, so narrowing with `--limit` or `--category` reports on that subset rather
+than silently folding in the previous full run.
 
 ## Reading the output
 

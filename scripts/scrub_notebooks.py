@@ -138,8 +138,38 @@ def scrub_output(out: dict, findings: list[str], where: str) -> None:
             data[k] = scrub_text(v, findings, where)
 
 
+class NotebookError(Exception):
+    """A notebook that cannot be processed, reported as one line rather than a traceback."""
+
+
+def _write_atomic(path: Path, text: str) -> None:
+    """Write via a sibling temp file and rename.
+
+    A notebook is rewritten in place only because it contained a secret. Writing
+    straight over it means an interrupted run leaves a truncated notebook and loses
+    the work it was scrubbing.
+    """
+    tmp = path.with_name(path.name + ".scrub.tmp")
+    try:
+        tmp.write_text(text, encoding="utf-8")
+        os.replace(tmp, path)
+    finally:
+        if tmp.exists():
+            tmp.unlink(missing_ok=True)
+
+
 def scrub_notebook(path: Path, check_only: bool) -> list[str]:
-    nb = json.loads(path.read_text())
+    try:
+        nb = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        raise NotebookError(f"{path}: no such file") from exc
+    except UnicodeDecodeError as exc:
+        raise NotebookError(f"{path}: not UTF-8 text ({exc.reason})") from exc
+    except json.JSONDecodeError as exc:
+        raise NotebookError(f"{path}: not a valid .ipynb (JSON error at line {exc.lineno}: "
+                            f"{exc.msg})") from exc
+    if not isinstance(nb, dict) or "cells" not in nb:
+        raise NotebookError(f"{path}: not a notebook (no 'cells' key)")
     findings: list[str] = []
     for i, cell in enumerate(nb.get("cells", [])):
         src = cell.get("source", [])
@@ -153,7 +183,7 @@ def scrub_notebook(path: Path, check_only: bool) -> list[str]:
             else:
                 scrub_output(out, findings, f"{path.name} cell[{i}] out[{j}]")
     if findings and not check_only:
-        path.write_text(json.dumps(nb, indent=1, ensure_ascii=False) + "\n")
+        _write_atomic(path, json.dumps(nb, indent=1, ensure_ascii=False) + "\n")
     return findings
 
 
@@ -162,27 +192,37 @@ def main() -> int:
     check_only = "--check" in args
     paths = [Path(a) for a in args if a.endswith(".ipynb")]
     if not paths:
-        paths = sorted(Path("notebooks").glob("*.ipynb"))
+        notebooks_dir = Path(__file__).resolve().parent.parent / "notebooks"
+        paths = sorted(notebooks_dir.glob("*.ipynb"))
     if not paths:
         print("No notebooks found.")
         return 0
 
     total = 0
+    errors = 0
     for p in paths:
-        findings = scrub_notebook(p, check_only)
+        try:
+            findings = scrub_notebook(p, check_only)
+        except NotebookError as exc:
+            print(f"[error] {exc}", file=sys.stderr)
+            errors += 1
+            continue
         total += len(findings)
         tag = "FOUND" if findings else "clean"
         print(f"[{tag}] {p}")
         for f in findings:
             print(f"    - {f}")
 
+    if errors:
+        print(f"\n{errors} notebook(s) could not be processed.", file=sys.stderr)
+        return 1
     if check_only:
         if total:
-            print(f"\n✗ {total} sensitive item(s) still present.")
+            print(f"\nFAIL: {total} sensitive item(s) still present.")
             return 1
-        print("\n✓ No secrets/PII detected.")
+        print("\nOK: no secrets/PII detected.")
         return 0
-    print(f"\n✓ Scrub complete ({total} item(s) redacted).")
+    print(f"\nScrub complete ({total} item(s) redacted).")
     return 0
 
 

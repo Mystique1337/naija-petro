@@ -265,7 +265,10 @@ def load_questions(
     ids: Sequence[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Read questions.jsonl, validate required fields, apply filters."""
+    if not path.exists():
+        raise SystemExit(f"{path}: no such file. Pass --questions with a path that exists.")
     out: list[dict[str, Any]] = []
+    seen: dict[str, int] = {}
     with path.open(encoding="utf-8") as fh:
         for lineno, line in enumerate(fh, 1):
             line = line.strip()
@@ -275,9 +278,24 @@ def load_questions(
                 obj = json.loads(line)
             except json.JSONDecodeError as exc:
                 raise SystemExit(f"{path}:{lineno}: invalid JSON: {exc}") from exc
+            if not isinstance(obj, dict):
+                raise SystemExit(f"{path}:{lineno}: each line must be a JSON object")
             missing = [k for k in REQUIRED_FIELDS if k not in obj]
             if missing:
                 raise SystemExit(f"{path}:{lineno}: missing field(s): {', '.join(missing)}")
+            qid = str(obj["id"])
+            # The id is the resume key and the record key. Two questions sharing one id
+            # would silently overwrite each other in --resume and in the report.
+            if qid in seen:
+                raise SystemExit(
+                    f"{path}:{lineno}: duplicate id '{qid}', first seen on line {seen[qid]}. "
+                    "Ids are used as resume keys and must be unique."
+                )
+            seen[qid] = lineno
+            if not isinstance(obj["key_facts"], list) or not obj["key_facts"]:
+                raise SystemExit(f"{path}:{lineno}: {qid}: key_facts must be a non-empty list")
+            if not str(obj["question"]).strip():
+                raise SystemExit(f"{path}:{lineno}: {qid}: question is empty")
             out.append(obj)
 
     if ids:
@@ -651,24 +669,86 @@ def build_pairwise_prompt(question: dict[str, Any], first: str, second: str) -> 
     )
 
 
-def _extract_json_object(text: str) -> dict[str, Any] | None:
-    """Pull the first JSON object out of a judge reply, tolerating fences and prose."""
-    body = strip_reasoning(text or "")
-    fenced = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", body, re.DOTALL)
-    candidates: list[str] = []
-    if fenced:
-        candidates.append(fenced.group(1))
-    start, end = body.find("{"), body.rfind("}")
-    if start != -1 and end > start:
-        candidates.append(body[start:end + 1])
-    for cand in candidates:
-        try:
-            obj = json.loads(cand)
-        except json.JSONDecodeError:
+_FENCE_RE = re.compile(r"```(?:[a-zA-Z0-9_+-]*)\s*(.*?)```", re.DOTALL)
+_TRAILING_COMMA_RE = re.compile(r",(\s*[}\]])")
+
+
+def _iter_json_objects(text: str):
+    """Yield every balanced {...} span in `text`, outermost first, left to right.
+
+    Slicing from the first '{' to the last '}' breaks the moment the judge wraps its
+    JSON in prose that contains a brace of its own ("scores are in the object below
+    {see the rubric}"), or emits two objects, or adds a sign-off after the JSON.
+    Matching braces properly, and ignoring braces inside JSON strings, survives all
+    three.
+    """
+    depth = 0
+    start = -1
+    in_string = False
+    escaped = False
+    for i, ch in enumerate(text):
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
             continue
-        if isinstance(obj, dict):
+        if ch == '"':
+            in_string = True
+        elif ch == "{":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == "}":
+            if depth > 0:
+                depth -= 1
+                if depth == 0 and start != -1:
+                    yield text[start:i + 1]
+                    start = -1
+
+
+def _loads_lenient(candidate: str) -> Any:
+    """json.loads, retried once with trailing commas removed. Returns None on failure."""
+    try:
+        return json.loads(candidate)
+    except json.JSONDecodeError:
+        pass
+    try:
+        return json.loads(_TRAILING_COMMA_RE.sub(r"\1", candidate))
+    except json.JSONDecodeError:
+        return None
+
+
+def _extract_json_object(text: str) -> dict[str, Any] | None:
+    """Pull the judgement object out of a judge reply, tolerating fences and prose.
+
+    Fenced blocks are searched first because a judge that ignores "no markdown fence"
+    usually still puts the real answer inside the fence. Among the objects that parse,
+    one that carries judgement keys wins over one that merely happens to be JSON, so a
+    reply that quotes the requested schema before answering is not mistaken for the
+    answer.
+    """
+    body = strip_reasoning(text or "")
+    if not body:
+        return None
+
+    candidates: list[str] = []
+    for match in _FENCE_RE.finditer(body):
+        candidates.extend(_iter_json_objects(match.group(1)))
+    candidates.extend(_iter_json_objects(body))
+
+    fallback: dict[str, Any] | None = None
+    for cand in candidates:
+        obj = _loads_lenient(cand)
+        if not isinstance(obj, dict):
+            continue
+        if any(k in obj for k in DIM_KEYS) or "winner" in obj:
             return obj
-    return None
+        if fallback is None:
+            fallback = obj
+    return fallback
 
 
 async def call_judge(
@@ -883,6 +963,17 @@ def extract_numbers(text: str) -> list[float]:
     return values
 
 
+DEFAULT_REL_TOLERANCE = 0.02
+MAX_REL_TOLERANCE = 0.5     # a band wider than this is not a check, it is a coin toss
+
+# Insertion order matters: on a tie the earliest scale wins, so a plainly correct
+# figure is never attributed to a coincidence three orders of magnitude away.
+NUMERIC_SCALES: dict[str, float] = {
+    "as_given": 1.0, "thousands": 1e-3, "millions": 1e-6, "billions": 1e-9,
+    "fraction_of_percent": 1e-2, "percent_of_fraction": 1e2,
+}
+
+
 def grade_numeric(answer: str, target: float, rel_tolerance: float) -> dict[str, Any]:
     """Deterministic numeric grading. The judge is never asked to check arithmetic.
 
@@ -890,35 +981,75 @@ def grade_numeric(answer: str, target: float, rel_tolerance: float) -> dict[str,
     billions) or as a fraction rather than a percentage, since a correct answer may
     legitimately write 223 MMSTB or 0.218 instead of the raw figure. The matched
     scale is recorded so a reviewer can see what was accepted.
+
+    Every number in the answer is a candidate, so a coincidental match is possible.
+    `numeric_matches_within_tolerance` counts how many candidates landed inside the
+    band: anything above 1 means the pass is not unique and deserves a look.
     """
-    scales = {
-        "as_given": 1.0, "thousands": 1e-3, "millions": 1e-6, "billions": 1e-9,
-        "fraction_of_percent": 1e-2, "percent_of_fraction": 1e2,
-    }
-    found = extract_numbers(answer)
     best: dict[str, Any] = {
         "numeric_correct": False, "numeric_target": target, "numeric_matched": None,
         "numeric_matched_scale": None, "numeric_rel_error": None,
-        "numeric_candidates_examined": len(found),
+        "numeric_candidates_examined": 0, "numeric_matches_within_tolerance": 0,
+        "numeric_tolerance_used": None, "numeric_error": None,
     }
+
+    try:
+        target = float(target)
+    except (TypeError, ValueError):
+        best["numeric_error"] = "numeric_answer is not a number"
+        return best
+    if not math.isfinite(target):
+        best["numeric_error"] = "numeric_answer is not finite"
+        return best
+    best["numeric_target"] = target
+
+    try:
+        tol = float(rel_tolerance)
+    except (TypeError, ValueError):
+        tol = DEFAULT_REL_TOLERANCE
+    if not math.isfinite(tol) or tol < 0:
+        tol = DEFAULT_REL_TOLERANCE
+    tol = min(tol, MAX_REL_TOLERANCE)
+    best["numeric_tolerance_used"] = tol
+
+    found = extract_numbers(answer)
+    best["numeric_candidates_examined"] = len(found)
+    if not found:
+        return best
+
+    # A relative error against a target of zero is undefined, and the old code skipped
+    # every scale in that case, so a question with numeric_answer 0 could never be
+    # graded correct. Fall back to an absolute band of the same width.
+    if target == 0.0:
+        for value in found:
+            err = abs(value)
+            if err <= tol:
+                best["numeric_matches_within_tolerance"] += 1
+            if best["numeric_rel_error"] is None or err < best["numeric_rel_error"]:
+                best["numeric_matched"] = value
+                best["numeric_matched_scale"] = "absolute_against_zero"
+                best["numeric_rel_error"] = round(err, 6)
+        best["numeric_correct"] = bool(
+            best["numeric_rel_error"] is not None and best["numeric_rel_error"] <= tol
+        )
+        return best
+
     best_err = math.inf
-    for label, factor in scales.items():
+    for label, factor in NUMERIC_SCALES.items():
         scaled = target * factor
-        if scaled == 0:
+        if scaled == 0 or not math.isfinite(scaled):
             continue
         for value in found:
             err = abs(value - scaled) / abs(scaled)
+            if err <= tol:
+                best["numeric_matches_within_tolerance"] += 1
+            # Strictly closer only, so the earliest scale keeps a tie.
             if err < best_err:
                 best_err = err
                 best["numeric_matched"] = value
                 best["numeric_matched_scale"] = label
                 best["numeric_rel_error"] = round(err, 6)
-            if err <= rel_tolerance:
-                best.update({
-                    "numeric_correct": True, "numeric_matched": value,
-                    "numeric_matched_scale": label, "numeric_rel_error": round(err, 6),
-                })
-                return best
+    best["numeric_correct"] = best_err <= tol
     return best
 
 
@@ -1000,9 +1131,11 @@ async def evaluate_one(
     }
     record.update(fact_coverage(answer.text, key_facts, threshold=fact_threshold))
     if "numeric_answer" in question:
+        # Not pre-cast: grade_numeric validates the target and the tolerance itself, so a
+        # malformed question is recorded rather than crashing the worker mid-run.
         record.update(grade_numeric(
-            answer.text, float(question["numeric_answer"]),
-            float(question.get("rel_tolerance", 0.02)),
+            answer.text, question["numeric_answer"],
+            question.get("rel_tolerance", DEFAULT_REL_TOLERANCE),
         ))
         record["numeric_unit"] = question.get("unit", "")
 
@@ -1102,8 +1235,8 @@ async def evaluate_pair(
         cov = fact_coverage(ans.text, question.get("key_facts") or [])
         record[f"programmatic_key_fact_coverage_{label}"] = cov["programmatic_key_fact_coverage"]
         if "numeric_answer" in question:
-            graded = grade_numeric(ans.text, float(question["numeric_answer"]),
-                                   float(question.get("rel_tolerance", 0.02)))
+            graded = grade_numeric(ans.text, question["numeric_answer"],
+                                   question.get("rel_tolerance", DEFAULT_REL_TOLERANCE))
             record[f"numeric_correct_{label}"] = graded["numeric_correct"]
 
     if not first_text.strip() or not second_text.strip():
@@ -1624,19 +1757,24 @@ def render_single_markdown(payload: dict[str, Any]) -> str:
         lines += ["## Numeric questions (graded in code, not by the judge)", "",
                   f"- {num['n_correct']} of {num['n']} correct within tolerance "
                   f"({_fmt((num['accuracy'] or 0) * 100, '.0f')} percent)", "",
-                  "| Question | Target | Matched | Scale | Rel. error | Correct |",
-                  "|---|---:|---:|---|---:|---|"]
+                  "| Question | Target | Matched | Scale | Rel. error | In band | Correct |",
+                  "|---|---:|---:|---|---:|---:|---|"]
         for rec in records:
             if "numeric_correct" not in rec:
                 continue
             lines.append(
-                f"| {rec['question_id']} | {rec['numeric_target']:g} "
+                f"| {rec['question_id']} | {_fmt(rec.get('numeric_target'), '.6g')} "
                 f"| {_fmt(rec.get('numeric_matched'), '.6g')} "
                 f"| {rec.get('numeric_matched_scale') or 'n/a'} "
                 f"| {_fmt(rec.get('numeric_rel_error'), '.4f')} "
+                f"| {rec.get('numeric_matches_within_tolerance', 'n/a')} "
                 f"| {'yes' if rec['numeric_correct'] else 'NO'} |"
             )
-        lines.append("")
+        lines += ["",
+                  "`In band` counts how many of the numbers in the answer fell inside the "
+                  "tolerance at some scale. Every number in the answer is a candidate, so a "
+                  "count above 1 means the pass was not unique: read the answer before "
+                  "believing it.", ""]
 
     traps = agg["traps"]
     if traps["n"]:
@@ -1826,6 +1964,9 @@ def add_common_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--judge-timeout", type=float, default=180.0)
     parser.add_argument("--judge-thinking", choices=("on", "off"), default="off",
                         help="Nemotron models take a 'detailed thinking on/off' system line")
+    parser.add_argument("--allow-missing-judge-key", action="store_true",
+                        help="Run even though the judge key env var is unset. Off by default: "
+                             "without a judge every answer is generated, paid for and discarded")
 
 
 def resolve_system_prompt(args: argparse.Namespace) -> str:
@@ -1879,13 +2020,60 @@ def judge_from_args(args: argparse.Namespace) -> JudgeConfig:
 
 
 def sibling_paths(out: Path) -> tuple[Path, Path]:
-    return out.with_suffix(".jsonl"), out.with_suffix(".md")
+    """Companion .jsonl and .md next to --out.
+
+    `Path.with_suffix` replaces whatever follows the last dot, so `--out run.2026-08-03`
+    would collapse both siblings onto `run.jsonl` / `run.md` and lose the run name. Only
+    a real `.json` extension is replaced; anything else is appended to.
+    """
+    stem = out.name[: -len(out.suffix)] if out.suffix == ".json" else out.name
+    return out.with_name(stem + ".jsonl"), out.with_name(stem + ".md")
+
+
+def require_judge_key(cfg: JudgeConfig, allow_missing: bool) -> None:
+    """Stop before spending anything if the judge cannot be called.
+
+    Generation is the expensive half of a run: on the deployed app every question is a
+    GPU turn on metered Modal credits. Without a judge key each of those answers is
+    produced, paid for, and then discarded as an unparseable judgement, so this is a
+    hard stop rather than a warning.
+    """
+    if not cfg.key_env or os.environ.get(cfg.key_env):
+        return
+    if allow_missing:
+        print(f"[warn] ${cfg.key_env} is not set; the judge will be called without an "
+              "Authorization header, as requested by --allow-missing-judge-key.",
+              file=sys.stderr)
+        return
+    raise SystemExit(
+        f"${cfg.key_env} is not set in the environment or .env, so every judge call will fail "
+        "and every answer generated for this run would be wasted. Set it, point --judge-key-env "
+        "at the right variable, or pass --allow-missing-judge-key if the judge endpoint really "
+        "needs no key."
+    )
 
 
 def warn_missing_key(env_name: str, what: str) -> None:
     if env_name and not os.environ.get(env_name):
         print(f"[warn] ${env_name} is not set in the environment or .env; {what} will be called "
               "without an Authorization header.", file=sys.stderr)
+
+
+def warn_target_cost(spec: TargetSpec, n_questions: int, concurrency: int) -> None:
+    """Say out loud what an `app` target is about to spend, before it spends it."""
+    if spec.kind != "app":
+        return
+    print(f"[cost] '{spec.name}' is the deployed app: {n_questions} questions is "
+          f"{n_questions} GPU generations on metered Modal credits, plus a cold start. "
+          "A local OpenAI-compatible endpoint costs nothing; use --kind openai where the "
+          "comparison allows it.", file=sys.stderr)
+    if not spec.token_env:
+        print("[warn] no --token-env for the app target. Anonymous callers hit the free daily "
+              "limit, so a long run will start failing partway through and the aggregate will "
+              "be built on whatever got through.", file=sys.stderr)
+    if concurrency > 2:
+        print(f"[warn] --concurrency {concurrency} against an app capped to one GPU container "
+              "will queue and time out. Use 1 or 2.", file=sys.stderr)
 
 
 def print_dry_run(questions: Sequence[dict[str, Any]], specs: Sequence[TargetSpec],
@@ -1925,7 +2113,8 @@ def print_dry_run(questions: Sequence[dict[str, Any]], specs: Sequence[TargetSpe
         if "numeric_answer" in q:
             print(f"\n--- deterministic numeric grading ---\ntarget {q['numeric_answer']} "
                   f"{q.get('unit', '')} within relative tolerance "
-                  f"{q.get('rel_tolerance', 0.02)} (graded in code, never by the judge)")
+                  f"{q.get('rel_tolerance', DEFAULT_REL_TOLERANCE)} "
+                  "(graded in code, never by the judge)")
     if len(questions) > len(sample):
         print(f"\n... {len(questions) - len(sample)} further questions not shown.")
     print("\nDry run complete. Remove --dry-run to execute.")
@@ -1947,25 +2136,35 @@ async def cmd_single(args: argparse.Namespace) -> int:
     spec = target_from_args(args, "", "system-under-test")
     judge_cfg = judge_from_args(args)
 
+    # Everything above this point reads local files only. The dry run returns here,
+    # before the first httpx client is constructed, so it cannot make a network call
+    # and cannot spend GPU time.
     if args.dry_run:
         print_dry_run(questions, [spec], judge_cfg, pairwise=False, seed=args.seed)
         return 0
 
-    warn_missing_key(judge_cfg.key_env, "the judge")
+    require_judge_key(judge_cfg, args.allow_missing_judge_key)
     if spec.kind == "openai":
         warn_missing_key(spec.key_env, f"target {spec.name}")
 
     jsonl_path, md_path = sibling_paths(args.out)
     sink = RecordSink(jsonl_path)
     done = sink.load() if args.resume else {}
+
+    # Only records for the questions actually selected on THIS run, and for THIS system.
+    # The sink is append-only and keyed by system, so without the filter a narrowed
+    # rerun (--limit, --category) reports on the whole previous run instead.
+    keys = [f"single|{spec.name}|{q['id']}" for q in questions]
+    reused = [done[k] for k in keys if k in done]
     if done:
-        print(f"[resume] {len(done)} records already in {jsonl_path}")
+        print(f"[resume] {len(done)} records in {jsonl_path}, {len(reused)} of them in scope")
 
     started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     sem = asyncio.Semaphore(max(1, args.concurrency))
     pending = [q for q in questions if f"single|{spec.name}|{q['id']}" not in done]
     control_ids = {q["id"] for q in pending[:max(0, args.control_probe)]}
     completed = 0
+    warn_target_cost(spec, len(pending), args.concurrency)
 
     async with httpx.AsyncClient(follow_redirects=True) as client:
         async def worker(question: dict[str, Any]) -> dict[str, Any]:
@@ -1988,7 +2187,7 @@ async def cmd_single(args: argparse.Namespace) -> int:
 
         fresh = await asyncio.gather(*(worker(q) for q in pending), return_exceptions=True)
 
-    records = list(done.values())
+    records = list(reused)
     for item in fresh:
         if isinstance(item, BaseException):
             print(f"[error] worker raised: {item}", file=sys.stderr)
@@ -2031,11 +2230,12 @@ async def cmd_pairwise(args: argparse.Namespace) -> int:
         spec_b.name = spec_b.name + "-b"
     judge_cfg = judge_from_args(args)
 
+    # As in cmd_single: returns before any client exists, so no network call is possible.
     if args.dry_run:
         print_dry_run(questions, [spec_a, spec_b], judge_cfg, pairwise=True, seed=args.seed)
         return 0
 
-    warn_missing_key(judge_cfg.key_env, "the judge")
+    require_judge_key(judge_cfg, args.allow_missing_judge_key)
     for spec in (spec_a, spec_b):
         if spec.kind == "openai":
             warn_missing_key(spec.key_env, f"target {spec.name}")
@@ -2043,14 +2243,18 @@ async def cmd_pairwise(args: argparse.Namespace) -> int:
     jsonl_path, md_path = sibling_paths(args.out)
     sink = RecordSink(jsonl_path)
     done = sink.load() if args.resume else {}
-    if done:
-        print(f"[resume] {len(done)} records already in {jsonl_path}")
 
     started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     sem = asyncio.Semaphore(max(1, args.concurrency))
     key_of = lambda q: f"pairwise|{spec_a.name}|{spec_b.name}|{q['id']}"  # noqa: E731
+    # Same reasoning as the single path: keep only the records this run selected.
+    reused = [done[key_of(q)] for q in questions if key_of(q) in done]
+    if done:
+        print(f"[resume] {len(done)} records in {jsonl_path}, {len(reused)} of them in scope")
     pending = [q for q in questions if key_of(q) not in done]
     completed = 0
+    for spec in (spec_a, spec_b):
+        warn_target_cost(spec, len(pending), args.concurrency)
 
     async with httpx.AsyncClient(follow_redirects=True) as client:
         async def worker(question: dict[str, Any]) -> dict[str, Any]:
@@ -2070,7 +2274,7 @@ async def cmd_pairwise(args: argparse.Namespace) -> int:
 
         fresh = await asyncio.gather(*(worker(q) for q in pending), return_exceptions=True)
 
-    records = list(done.values())
+    records = list(reused)
     for item in fresh:
         if isinstance(item, BaseException):
             print(f"[error] worker raised: {item}", file=sys.stderr)
@@ -2159,6 +2363,24 @@ def cmd_validate(args: argparse.Namespace) -> int:
             numeric += 1
             if "unit" not in q:
                 problems.append(f"{q['id']}: numeric_answer without a unit")
+            try:
+                value = float(q["numeric_answer"])
+                if not math.isfinite(value):
+                    raise ValueError
+            except (TypeError, ValueError):
+                problems.append(f"{q['id']}: numeric_answer is not a finite number "
+                                f"({q['numeric_answer']!r})")
+            if "rel_tolerance" in q:
+                try:
+                    tol = float(q["rel_tolerance"])
+                except (TypeError, ValueError):
+                    problems.append(f"{q['id']}: rel_tolerance is not a number "
+                                    f"({q['rel_tolerance']!r})")
+                else:
+                    if not (0 < tol <= MAX_REL_TOLERANCE):
+                        problems.append(
+                            f"{q['id']}: rel_tolerance {tol} is outside (0, {MAX_REL_TOLERANCE}]"
+                        )
         if q.get("trap"):
             traps += 1
         if q["requires_retrieval"]:
