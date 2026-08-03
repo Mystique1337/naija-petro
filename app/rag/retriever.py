@@ -73,11 +73,25 @@ def _cap_per_source(rows: list[dict], max_per_source: int, final_k: int) -> list
     return (kept + overflow)[:final_k]
 
 
+def _distinct_sources(rows: list[dict], limit: int) -> int:
+    """How many different documents the best `limit` hits come from."""
+    return len({(r.get("document_id") or r.get("source_url") or r.get("title") or "")
+                for r in rows[:limit]})
+
+
 def is_weak(rows: list[dict]) -> bool:
-    """Local knowledge is insufficient → we should fetch live."""
+    """Local knowledge is insufficient, so fetch live.
+
+    Coverage alone is the maximum similarity of any single chunk, so one loosely
+    matching page scores high and suppresses enrichment even when the store holds
+    nothing else on the subject. A question answered from a single document is
+    exactly where this assistant invents specifics, so breadth counts too.
+    """
     if len(rows) < settings.min_chunks:
         return True
-    return _coverage(rows) < settings.coverage_threshold
+    if _coverage(rows) < settings.coverage_threshold:
+        return True
+    return _distinct_sources(rows, settings.final_k) < settings.min_sources
 
 
 async def _search(query: str, embed_fn: EmbedFn) -> list[dict]:

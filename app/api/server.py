@@ -883,10 +883,13 @@ def create_app(deps: Deps) -> FastAPI:
                                         "A verified engineering calculator has already computed the exact result "
                                         "for this question:\n"
                                         f"{obj['tool']}({json.dumps(args)}) = {json.dumps(lean)}\n"
-                                        "Report these exact figures as the answer. You may show the governing "
-                                        "formula and explain the inputs, but state the verified numeric result "
-                                        "above verbatim and do NOT redo the arithmetic or produce a different "
-                                        "number.\n\n"
+                                        "Use these exact numbers. Do NOT redo the arithmetic and do NOT "
+                                        "produce a different figure.\n"
+                                        "Write the answer as prose for an engineer: state each result as a "
+                                        "sentence with its value and unit, then show the governing equation and "
+                                        "explain the inputs. Never paste the line above into your answer: no "
+                                        "JSON, no braces, no key names like rate_at_pwf_target. Say 'the "
+                                        "absolute open flow potential is 1040.7 bopd', not a data structure.\n\n"
                                     )
                                     messages[-1]["content"] = note + messages[-1]["content"]
                         except asyncio.CancelledError:

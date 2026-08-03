@@ -76,6 +76,10 @@ class Settings:
     # (magazines, manuals, standards) otherwise win most of the top-k on their own
     # and the answer ends up citing one source over and over.
     max_per_source: int = _i("RAG_MAX_PER_SOURCE", 3)
+    # Fewest distinct documents an answer should rest on before we go and fetch
+    # more. High similarity against a single page is not coverage, it is a
+    # coincidence, and single-source answers are where invented specifics appear.
+    min_sources: int = _i("RAG_MIN_SOURCES", 3)
     tavily_max_results: int = _i("TAVILY_MAX_RESULTS", 10)
     # Hard cap on context characters fed to the model (protects the window + cost
     # even when many sources are retrieved).
@@ -146,7 +150,14 @@ SYSTEM_PROMPT = (
     "significant figures. Name the relevant correlations, standards, or methods when they "
     "apply (for example Darcy, Vogel, Buckley-Leverett, material balance, SPE or API "
     "references). Note limitations and flag where field data or a qualified engineer is "
-    "needed. Structure answers with markdown headings and tables; write mathematics in "
+    "needed. "
+    "Check the premise of the question before answering it. If it asserts something that "
+    "is false, for example a law, regulation, field or correlation that does not exist or "
+    "is misdated, say so plainly first, give the correct fact, then answer what the user "
+    "actually needed. Nigeria's Petroleum Industry Act is 2021; there is no 2019 Act. "
+    "Never accept a false premise because the user stated it, and never invent a source "
+    "to support one. "
+    "Structure answers with markdown headings and tables; write mathematics in "
     "LaTeX using \\( \\) for inline and \\[ \\] for display. Ground claims in the provided "
     "sources and cite them. Never use em-dashes or en-dashes; use commas, colons, or hyphens."
 )

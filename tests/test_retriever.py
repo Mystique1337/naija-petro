@@ -23,6 +23,7 @@ class FakeSettings:
     top_k: int = 10
     final_k: int = 4
     max_per_source: int = 3
+    min_sources: int = 3
 
 
 @pytest.fixture(autouse=True)
@@ -255,3 +256,23 @@ def test_cap_per_source_falls_back_to_source_url():
     rows = [{"source_url": "http://a", "content": str(i)} for i in range(5)]
     kept = _cap_per_source(rows, 2, 3)
     assert len(kept) == 3
+
+
+# --------------------------------------------------------------------------- #
+# is_weak also demands breadth: one loosely matching page used to score high
+# enough to suppress enrichment, and single-source answers are where the model
+# invents specifics
+# --------------------------------------------------------------------------- #
+def test_single_source_is_weak_even_with_high_similarity():
+    rows = [{"document_id": "A", "similarity": 0.95} for _ in range(6)]
+    assert retriever.is_weak(rows) is True
+
+
+def test_enough_distinct_sources_is_not_weak():
+    rows = [{"document_id": d, "similarity": 0.8} for d in ("A", "B", "C", "D")]
+    assert retriever.is_weak(rows) is False
+
+
+def test_low_similarity_is_still_weak_with_many_sources():
+    rows = [{"document_id": d, "similarity": 0.1} for d in ("A", "B", "C", "D")]
+    assert retriever.is_weak(rows) is True
