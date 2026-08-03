@@ -4,7 +4,8 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Naija-Petro · Petroleum Engineering Assistant</title>
-<!-- build: ui-11 (visible citation numbers) -->
+<!-- build: ui-12 (honest cold-start copy; abortable/self-healing streaming; storage-safe boot;
+     safe source URLs; math no longer corrupts code fences; modal a11y; mobile reach) -->
 <meta name="description" content="Nigeria-aware petroleum engineering AI with verifiable, cited sources." />
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛢️</text></svg>" />
 <script>tailwind = window.tailwind || {}; </script>
@@ -71,35 +72,37 @@
   <!-- Header -->
   <header class="flex items-center gap-3 px-4 sm:px-6 py-3 border-b dark:border-[#1f2d27] border-[#e3ece7] sticky top-0 z-10 backdrop-blur bg-white/60 dark:bg-[#0a0f0d]/70">
     <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-naija to-naija-deep grid place-items-center text-lg shadow-lg shadow-naija/20">🛢️</div>
-    <div class="leading-tight">
+    <div class="leading-tight min-w-0">
       <div class="font-bold tracking-tight">Naija-Petro</div>
       <div class="text-[11px] text-naija-soft/90 font-medium">Nigeria-aware Petroleum Engineering AI</div>
     </div>
-    <div class="ml-auto flex items-center gap-2 text-xs">
+    <!-- shrink-0: on a narrow phone the title wraps instead of squashing the controls -->
+    <div class="ml-auto shrink-0 flex items-center gap-2 text-xs">
       <span class="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full border dark:border-[#1f2d27] border-[#e3ece7]" :title="`${kb.documents} documents, ${kb.chunks} chunks`">
         <span class="w-1.5 h-1.5 rounded-full bg-naija-soft animate-pulse"></span>
         <span x-text="`${kb.chunks} sources`"></span>
       </span>
-      <button @click="newChat()" title="New chat" class="w-8 h-8 grid place-items-center rounded-full border dark:border-[#1f2d27] border-[#e3ece7] hover:border-naija text-base leading-none">＋</button>
-      <button @click="openHistory()" title="Saved chats" class="hidden sm:block px-2.5 py-1 rounded-full border dark:border-[#1f2d27] border-[#e3ece7] hover:border-naija">History</button>
-      <button @click="toggleUnits()" title="Toggle field/SI units" class="px-2.5 py-1 rounded-full border dark:border-[#1f2d27] border-[#e3ece7] hover:border-naija"><span x-text="units==='si'?'SI':'Field'"></span></button>
+      <button @click="newChat()" title="New chat" aria-label="Start a new chat" class="w-8 h-8 grid place-items-center rounded-full border dark:border-[#1f2d27] border-[#e3ece7] hover:border-naija text-base leading-none">＋</button>
+      <button @click="openHistory()" title="Saved chats" aria-label="Saved chats" class="hidden sm:block px-2.5 py-1 rounded-full border dark:border-[#1f2d27] border-[#e3ece7] hover:border-naija">History</button>
+      <button @click="toggleUnits()" title="Toggle field/SI units" :aria-label="`Units: ${units==='si'?'SI':'field'}. Tap to switch.`" class="px-2.5 py-1 rounded-full border dark:border-[#1f2d27] border-[#e3ece7] hover:border-naija"><span x-text="units==='si'?'SI':'Field'"></span></button>
       <button @click="reasoningOn=!reasoningOn" :class="reasoningOn ? 'border-naija/60 text-naija-soft' : 'dark:border-[#1f2d27] border-[#e3ece7] opacity-60'"
-        class="hidden sm:block px-2.5 py-1 rounded-full border transition" title="Toggle the model's reasoning trace">
+        class="hidden sm:block px-2.5 py-1 rounded-full border transition" title="Toggle the model's reasoning trace"
+        aria-label="Show the model's reasoning trace" :aria-pressed="reasoningOn ? 'true' : 'false'">
         💭 <span x-text="reasoningOn?'on':'off'"></span>
       </button>
-      <button @click="openTools()" title="Engineering calculators" class="w-8 h-8 grid place-items-center rounded-full border dark:border-[#1f2d27] border-[#e3ece7] hover:border-naija">🧮</button>
-      <button @click="openGuide()" title="How to use Naija-Petro" class="w-8 h-8 grid place-items-center rounded-full border dark:border-[#1f2d27] border-[#e3ece7] hover:border-naija font-bold">?</button>
-      <button @click="openToken()" class="relative w-8 h-8 grid place-items-center rounded-full border dark:border-[#1f2d27] border-[#e3ece7] hover:border-naija" :title="tokenOk?'Access token active':'Enter access token'">
+      <button @click="openTools()" title="Engineering calculators" aria-label="Engineering calculators" class="w-8 h-8 grid place-items-center rounded-full border dark:border-[#1f2d27] border-[#e3ece7] hover:border-naija">🧮</button>
+      <button @click="openGuide()" title="How to use Naija-Petro" aria-label="How to use Naija-Petro" class="w-8 h-8 grid place-items-center rounded-full border dark:border-[#1f2d27] border-[#e3ece7] hover:border-naija font-bold">?</button>
+      <button @click="openToken()" class="relative w-8 h-8 grid place-items-center rounded-full border dark:border-[#1f2d27] border-[#e3ece7] hover:border-naija" :title="tokenOk?'Access token active':'Enter access token'" :aria-label="tokenOk?'Access token active':'Enter access token'">
         🔑<span x-show="tokenOk" class="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-naija-soft border-2 dark:border-[#0a0f0d] border-white"></span>
       </button>
-      <button @click="toggleTheme()" class="w-8 h-8 grid place-items-center rounded-full border dark:border-[#1f2d27] border-[#e3ece7]" title="Toggle theme">
+      <button @click="toggleTheme()" class="w-8 h-8 grid place-items-center rounded-full border dark:border-[#1f2d27] border-[#e3ece7]" title="Toggle theme" :aria-label="dark?'Switch to the light theme':'Switch to the dark theme'">
         <span x-show="dark">☀️</span><span x-show="!dark">🌙</span>
       </button>
     </div>
   </header>
 
   <!-- Messages -->
-  <main x-ref="scroll" class="flex-1 overflow-y-auto px-4 sm:px-6 py-6 space-y-7">
+  <main x-ref="scroll" aria-label="Conversation" class="flex-1 overflow-y-auto px-4 sm:px-6 py-6 space-y-7">
 
     <template x-if="messages.length===0">
       <div class="max-w-2xl mx-auto text-center mt-4 sm:mt-10">
@@ -131,15 +134,15 @@
             <div class="min-w-0 flex-1">
 
               <!-- live status -->
-              <div x-show="m.streaming && !m.answer" class="flex items-center gap-2 text-sm text-naija-soft mb-2">
-                <span class="flex gap-1 text-lg leading-none"><span class="dot">·</span><span class="dot">·</span><span class="dot">·</span></span>
+              <div x-show="m.streaming && !m.answer" role="status" aria-live="polite" class="flex items-center gap-2 text-sm text-naija-soft mb-2">
+                <span class="flex gap-1 text-lg leading-none" aria-hidden="true"><span class="dot">·</span><span class="dot">·</span><span class="dot">·</span></span>
                 <span x-text="stageLabel(m.stage)"></span>
               </div>
 
               <!-- reasoning trace -->
               <template x-if="m.reasoning">
                 <div class="mb-2.5 rounded-xl border dark:border-[#1f2d27] border-[#e3ece7] overflow-hidden">
-                  <button @click="m.showReason=!m.showReason" class="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium dark:bg-[#0c130f] bg-[#f3f8f5]">
+                  <button @click="m.showReason=!m.showReason" :aria-expanded="(m.showReason||m.thinking) ? 'true' : 'false'" aria-label="Show the reasoning trace" class="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium dark:bg-[#0c130f] bg-[#f3f8f5]">
                     <span x-show="m.thinking" class="w-2 h-2 rounded-full shimmer"></span>
                     <span>💭 Reasoning</span>
                     <span class="opacity-50" x-text="m.thinking ? '(thinking…)' : (m.showReason?'(hide)':'(show)')"></span>
@@ -165,7 +168,8 @@
                         <div class="mt-2 pt-2 border-t border-naija/20">
                           <div class="text-[10px] uppercase tracking-wide opacity-55 mb-1" x-text="t.result.series.title"></div>
                           <div class="relative w-full max-w-full h-40 sm:h-48">
-                            <canvas x-init="npDrawChartSoon($el, t.result.series)" class="max-w-full"></canvas>
+                            <canvas x-init="npDrawChartSoon($el, t.result.series)" role="img"
+                              :aria-label="`Chart: ${t.result.series.title || 'calculated curve'}`" class="max-w-full"></canvas>
                           </div>
                         </div>
                       </template>
@@ -194,9 +198,10 @@
                 <div class="text-[11px] uppercase tracking-wide opacity-50 mb-1.5">Sources</div>
                 <div class="space-y-1">
                   <template x-for="s in m.sources" :key="s.n">
-                    <a :href="s.url" target="_blank" rel="noopener" class="flex items-center gap-2 text-xs opacity-90 hover:opacity-100 hover:text-naija-soft group">
-                      <span class="cite shrink-0" x-text="s.n"></span>
-                      <img :src="`https://www.google.com/s2/favicons?domain=${s.domain}&sz=32`" class="w-3.5 h-3.5 rounded-sm shrink-0" loading="lazy" onerror="this.style.display='none'">
+                    <!-- safeUrl: a source URL is crawled data, so it never goes into an href raw -->
+                    <a :href="safeUrl(s.url)" target="_blank" rel="noopener noreferrer" class="flex items-center gap-2 text-xs opacity-90 hover:opacity-100 hover:text-naija-soft group">
+                      <span class="cite shrink-0" x-text="s.n" aria-hidden="true"></span>
+                      <img :src="`https://www.google.com/s2/favicons?domain=${encodeURIComponent(s.domain||'')}&sz=32`" alt="" class="w-3.5 h-3.5 rounded-sm shrink-0" loading="lazy" onerror="this.style.display='none'">
                       <span class="truncate group-hover:underline" x-text="s.title"></span>
                       <span class="ml-auto shrink-0 px-1.5 rounded text-[10px] border"
                         :class="s.tier===1?'border-naija/50 text-naija-soft':s.tier===2?'border-flare/40 text-flare':'dark:border-[#1f2d27] border-[#e3ece7] opacity-60'"
@@ -215,16 +220,17 @@
 
               <!-- actions -->
               <div x-show="!m.streaming && m.answer" class="flex items-center gap-1 mt-2.5 text-xs">
-                <button @click="copy(m.answer,$event)" class="px-2 py-1 rounded-lg dark:hover:bg-[#16221c] hover:bg-[#eef5f1] opacity-70 hover:opacity-100" title="Copy">📋 Copy</button>
-                <button @click="exportMd(m)" class="px-2 py-1 rounded-lg dark:hover:bg-[#16221c] hover:bg-[#eef5f1] opacity-70 hover:opacity-100" title="Export markdown">⬇︎ Export</button>
-                <span class="mx-1 opacity-30">·</span>
-                <button @click="rate(m,1)" :class="m.feedback===1?'text-naija-soft':'opacity-50 hover:opacity-100'" class="px-1.5 py-1 rounded-lg" title="Helpful">👍</button>
-                <button @click="rate(m,-1)" :class="m.feedback===-1?'text-flare':'opacity-50 hover:opacity-100'" class="px-1.5 py-1 rounded-lg" title="Not helpful">👎</button>
+                <button @click="copy(m.answer,$event)" class="px-2 py-1 rounded-lg dark:hover:bg-[#16221c] hover:bg-[#eef5f1] opacity-70 hover:opacity-100" title="Copy" aria-label="Copy this answer">📋 Copy</button>
+                <button @click="exportMd(m)" class="px-2 py-1 rounded-lg dark:hover:bg-[#16221c] hover:bg-[#eef5f1] opacity-70 hover:opacity-100" title="Export markdown" aria-label="Export this answer as markdown">⬇︎ Export</button>
+                <span class="mx-1 opacity-30" aria-hidden="true">·</span>
+                <button @click="rate(m,1)" :class="m.feedback===1?'text-naija-soft':'opacity-50 hover:opacity-100'" :aria-pressed="m.feedback===1?'true':'false'" class="px-1.5 py-1 rounded-lg" title="Helpful" aria-label="Helpful">👍</button>
+                <button @click="rate(m,-1)" :class="m.feedback===-1?'text-flare':'opacity-50 hover:opacity-100'" :aria-pressed="m.feedback===-1?'true':'false'" class="px-1.5 py-1 rounded-lg" title="Not helpful" aria-label="Not helpful">👎</button>
               </div>
 
               <!-- optional feedback note (training signal) -->
               <div x-show="m.showComment" class="mt-2 flex gap-2 max-w-xl">
-                <input x-model="m.comment" @keydown.enter="sendComment(m)" placeholder="Optional: what was good or wrong? (helps improve the model)"
+                <input x-model="m.comment" @keydown.enter="if(!$event.isComposing && $event.keyCode!==229) sendComment(m)"
+                  aria-label="Optional feedback about this answer" placeholder="Optional: what was good or wrong? (helps improve the model)"
                   class="flex-1 text-xs dark:bg-[#0a130f] bg-white border dark:border-[#1f2d27] border-[#e3ece7] rounded-lg px-2.5 py-1.5 outline-none focus:border-naija">
                 <button @click="sendComment(m)" class="text-xs px-3 rounded-lg bg-naija/80 hover:bg-naija text-white">Send</button>
               </div>
@@ -237,7 +243,7 @@
                 </template>
               </div>
 
-              <div x-show="m.error" class="text-sm text-red-400 mt-1" x-text="m.error"></div>
+              <div x-show="m.error" role="alert" class="text-sm text-red-400 mt-1" x-text="m.error"></div>
             </div>
           </div>
         </template>
@@ -249,26 +255,40 @@
   <footer class="border-t dark:border-[#1f2d27] border-[#e3ece7] backdrop-blur bg-white/60 dark:bg-[#0a0f0d]/70 px-4 sm:px-6 py-3">
     <div x-show="uploadMsg" class="max-w-3xl mx-auto mb-1.5 text-[11px] text-naija-soft" x-text="uploadMsg"></div>
     <div class="max-w-3xl mx-auto flex items-end gap-2">
-      <input type="file" x-ref="file" class="hidden" accept=".pdf,.txt,.md,.csv,.json" @change="uploadFile($event)">
+      <input type="file" x-ref="file" class="hidden" accept=".pdf,.txt,.md,.csv,.json" @change="uploadFile($event)" aria-label="Choose a document to upload">
       <button @click="$refs.file.click()" :disabled="uploading" title="Upload a document (PDF or text) to ask about it"
+        aria-label="Upload a document to ask about it"
         class="shrink-0 h-11 w-11 grid place-items-center rounded-xl border dark:border-[#1f2d27] border-[#e3ece7] hover:border-naija disabled:opacity-40 text-base">
         <span x-show="!uploading">📎</span><span x-show="uploading">…</span>
       </button>
-      <textarea x-ref="ta" x-model="input" rows="1" :disabled="busy"
-        @keydown.enter.prevent="!$event.shiftKey && send()" @input="warm($event.target.value); autosize($event.target)"
+      <!-- Enter sends, Shift+Enter is a newline. The old `.prevent` modifier fired on
+           every Enter, so Shift+Enter never inserted a line break, and an IME Enter
+           (committing a Japanese/Chinese/Korean candidate) submitted a half-typed
+           question. Both are gated here instead. -->
+      <textarea x-ref="ta" x-model="input" rows="1" :disabled="busy" aria-label="Ask a petroleum engineering question"
+        @keydown.enter="if(!$event.isComposing && $event.keyCode!==229 && !$event.shiftKey){ $event.preventDefault(); send(); }"
+        @input="warm($event.target.value); autosize($event.target)"
         placeholder="Ask about drilling, reservoir, the PIA 2021, NUPRC regulations…"
         class="flex-1 resize-none max-h-40 dark:bg-[#0a130f] bg-white border dark:border-[#1f2d27] border-[#e3ece7] focus:border-naija rounded-xl px-4 py-3 text-sm outline-none placeholder:opacity-50"></textarea>
-      <button @click="send()" :disabled="busy||!input.trim()"
+      <!-- While streaming this is a Stop, so a stalled answer can never leave the
+           composer permanently disabled. -->
+      <button @click="busy ? stop() : send()" :disabled="!busy && !input.trim()"
+        :aria-label="busy ? 'Stop generating' : 'Send message'"
         class="shrink-0 h-11 px-5 rounded-xl bg-naija hover:bg-naija-soft disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold text-sm transition shadow-lg shadow-naija/20">
-        <span x-show="!busy">Send</span><span x-show="busy">…</span>
+        <span x-show="!busy">Send</span><span x-show="busy">Stop</span>
       </button>
     </div>
-    <div class="max-w-3xl mx-auto flex items-center justify-between mt-2 text-[11px] opacity-60">
+    <div class="max-w-3xl mx-auto flex flex-wrap items-center justify-between gap-x-3 gap-y-1 mt-2 text-[11px] opacity-60">
       <span>Built by <span class="font-semibold opacity-100">Ashinze Emmanuel</span>
         <a href="https://github.com/Mystique1337/naija-petro" target="_blank" rel="noopener" class="underline hover:text-naija-soft ml-1">GitHub</a> ·
         <a href="https://huggingface.co/Shinzmann" target="_blank" rel="noopener" class="underline hover:text-naija-soft">Hugging Face</a>
       </span>
-      <span class="flex items-center gap-2">
+      <span class="flex flex-wrap items-center justify-end gap-x-2 gap-y-1">
+        <!-- The header hides these below sm, which left saved chats and the reasoning
+             toggle unreachable on a phone. Mirrored here for small screens only. -->
+        <button @click="openHistory()" class="sm:hidden underline hover:text-naija-soft" aria-label="Saved chats">History</button>
+        <button @click="reasoningOn=!reasoningOn" class="sm:hidden underline hover:text-naija-soft"
+          aria-label="Show the model's reasoning trace" :aria-pressed="reasoningOn ? 'true' : 'false'">💭 <span x-text="reasoningOn?'on':'off'"></span></button>
         <button @click="openEmail()" class="underline hover:text-naija-soft">Get updates</button>
         <button @click="openFeature()" class="underline hover:text-naija-soft">Suggest a feature</button>
         <span class="hidden sm:inline opacity-70">· Qwen3-8B + dynamic RAG · verify before operational use</span>
@@ -277,19 +297,21 @@
   </footer>
 
   <!-- Email capture modal (optional, shown once) -->
-  <div x-show="emailModal" x-cloak class="fixed inset-0 z-50 grid place-items-center bg-black/50 backdrop-blur-sm p-4" @click.self="dismissEmail()">
-    <div class="w-full max-w-sm rounded-2xl border dark:border-[#1f2d27] border-[#e3ece7] dark:bg-[#0f1714] bg-white p-5 shadow-2xl">
-      <div class="text-2xl mb-1">🛢️</div>
-      <h2 class="text-lg font-bold mb-1">Stay in the loop</h2>
+  <div x-show="emailModal" x-cloak @keydown.escape.window="dismissEmail()" class="fixed inset-0 z-50 grid place-items-center bg-black/50 backdrop-blur-sm p-4" @click.self="dismissEmail()">
+    <div data-modal role="dialog" aria-modal="true" aria-labelledby="np-email-title" tabindex="-1"
+      class="w-full max-w-sm rounded-2xl border dark:border-[#1f2d27] border-[#e3ece7] dark:bg-[#0f1714] bg-white p-5 shadow-2xl outline-none">
+      <div class="text-2xl mb-1" aria-hidden="true">🛢️</div>
+      <h2 id="np-email-title" class="text-lg font-bold mb-1">Stay in the loop</h2>
       <p class="text-sm opacity-70 mb-4">Get notified about new features and improvements to Naija-Petro. No spam, unsubscribe anytime.</p>
       <template x-if="!subscribed">
         <div>
-          <input x-model="email" type="email" placeholder="you@example.com" @keydown.enter="subscribe()"
+          <input x-model="email" type="email" placeholder="you@example.com" aria-label="Your email address"
+            @keydown.enter="if(!$event.isComposing && $event.keyCode!==229) subscribe()"
             class="w-full dark:bg-[#0a130f] bg-white border dark:border-[#1f2d27] border-[#e3ece7] focus:border-naija rounded-xl px-3 py-2.5 text-sm outline-none mb-3">
           <label class="flex items-center gap-2 text-xs opacity-80 mb-4 cursor-pointer select-none">
             <input type="checkbox" x-model="wantsUpdates" class="accent-naija w-4 h-4"> Send me occasional product updates
           </label>
-          <div class="text-xs text-red-400 mb-2" x-show="emailError" x-text="emailError"></div>
+          <div class="text-xs text-red-400 mb-2" role="alert" x-show="emailError" x-text="emailError"></div>
           <div class="flex gap-2">
             <button @click="subscribe()" class="flex-1 bg-naija hover:bg-naija-soft text-white text-sm font-semibold rounded-xl py-2.5 transition">Notify me</button>
             <button @click="dismissEmail()" class="px-3 text-sm opacity-60 hover:opacity-100">No thanks</button>
@@ -304,9 +326,10 @@
 
   <!-- History slide-over -->
   <div x-show="showHistory" x-cloak class="fixed inset-0 z-40 flex" @keydown.escape.window="showHistory=false">
-    <div class="w-80 max-w-[85vw] h-full dark:bg-[#0f1714] bg-white border-r dark:border-[#1f2d27] border-[#e3ece7] p-4 overflow-y-auto shadow-2xl">
+    <div data-modal role="dialog" aria-modal="true" aria-labelledby="np-history-title" tabindex="-1"
+      class="w-80 max-w-[85vw] h-full dark:bg-[#0f1714] bg-white border-r dark:border-[#1f2d27] border-[#e3ece7] p-4 overflow-y-auto shadow-2xl outline-none">
       <div class="flex items-center justify-between mb-3">
-        <h2 class="font-bold">Your chats</h2>
+        <h2 id="np-history-title" class="font-bold">Your chats</h2>
         <button @click="newChat()" class="text-xs px-2.5 py-1 rounded-lg bg-naija hover:bg-naija-soft text-white">+ New</button>
       </div>
       <template x-if="!sessions.length"><p class="text-xs opacity-60">No saved chats yet. Ask something and it will appear here next time.</p></template>
@@ -320,15 +343,16 @@
   </div>
 
   <!-- Feature request modal -->
-  <div x-show="showFeature" x-cloak class="fixed inset-0 z-50 grid place-items-center bg-black/50 backdrop-blur-sm p-4" @click.self="showFeature=false">
-    <div class="w-full max-w-sm rounded-2xl border dark:border-[#1f2d27] border-[#e3ece7] dark:bg-[#0f1714] bg-white p-5 shadow-2xl">
-      <h2 class="text-lg font-bold mb-1">💡 Suggest a feature</h2>
+  <div x-show="showFeature" x-cloak @keydown.escape.window="showFeature=false" class="fixed inset-0 z-50 grid place-items-center bg-black/50 backdrop-blur-sm p-4" @click.self="showFeature=false">
+    <div data-modal role="dialog" aria-modal="true" aria-labelledby="np-feature-title" tabindex="-1"
+      class="w-full max-w-sm rounded-2xl border dark:border-[#1f2d27] border-[#e3ece7] dark:bg-[#0f1714] bg-white p-5 shadow-2xl outline-none">
+      <h2 id="np-feature-title" class="text-lg font-bold mb-1">💡 Suggest a feature</h2>
       <p class="text-sm opacity-70 mb-3">What would make Naija-Petro more useful for you?</p>
       <template x-if="!featureSent">
         <div>
-          <textarea x-model="featureText" rows="3" placeholder="e.g. add a nodal analysis calculator, or support for well-log files"
+          <textarea x-model="featureText" rows="3" aria-label="Describe the feature you would like" placeholder="e.g. add a nodal analysis calculator, or support for well-log files"
             class="w-full dark:bg-[#0a130f] bg-white border dark:border-[#1f2d27] border-[#e3ece7] focus:border-naija rounded-xl px-3 py-2.5 text-sm outline-none mb-2 resize-none"></textarea>
-          <div class="text-xs text-red-400 mb-2" x-show="featureError" x-text="featureError"></div>
+          <div class="text-xs text-red-400 mb-2" role="alert" x-show="featureError" x-text="featureError"></div>
           <div class="flex gap-2">
             <button @click="submitFeature()" class="flex-1 bg-naija hover:bg-naija-soft text-white text-sm font-semibold rounded-xl py-2.5">Submit</button>
             <button @click="showFeature=false" class="px-3 text-sm opacity-60 hover:opacity-100">Cancel</button>
@@ -343,19 +367,21 @@
 
   <!-- Access token modal: optional. Lifts the daily free-question limit. -->
   <div x-show="tokenModal" x-cloak @keydown.escape.window="tokenModal=false" class="fixed inset-0 z-[60] grid place-items-center bg-black/50 backdrop-blur-sm p-4">
-    <div class="w-full max-w-sm rounded-2xl border p-6 dark:bg-[#0f1714] bg-white dark:border-[#1f2d27] border-[#e3ece7]" @click.outside="if(!limitReached) tokenModal=false">
+    <div data-modal role="dialog" aria-modal="true" aria-labelledby="np-token-title" tabindex="-1"
+      class="w-full max-w-sm rounded-2xl border p-6 dark:bg-[#0f1714] bg-white dark:border-[#1f2d27] border-[#e3ece7] outline-none" @click.outside="if(!limitReached) tokenModal=false">
       <div class="text-center mb-4">
-        <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-naija to-naija-deep grid place-items-center text-2xl mx-auto mb-3">🔑</div>
-        <h2 class="text-lg font-bold" x-text="tokenOk ? 'Access token active' : 'Access token'"></h2>
+        <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-naija to-naija-deep grid place-items-center text-2xl mx-auto mb-3" aria-hidden="true">🔑</div>
+        <h2 id="np-token-title" class="text-lg font-bold" x-text="tokenOk ? 'Access token active' : 'Access token'"></h2>
         <p class="text-sm opacity-70 mt-1" x-show="!tokenOk"
            x-text="limitReached ? `You have used your ${dailyLimit} free questions for today. Enter an access token to keep going, or come back tomorrow.` : `Everyone gets ${dailyLimit} free questions a day. An access token lifts that limit.`"></p>
         <p class="text-sm opacity-70 mt-1" x-show="tokenOk">Your token is active. Ask freely, no daily limit.</p>
       </div>
       <template x-if="!tokenOk">
         <div>
-          <input x-model="tokenInput" type="password" @keydown.enter="submitToken()" placeholder="Paste your access token" autofocus
+          <input x-model="tokenInput" type="password" aria-label="Access token" placeholder="Paste your access token"
+            @keydown.enter="if(!$event.isComposing && $event.keyCode!==229) submitToken()"
             class="w-full dark:bg-[#0a130f] bg-white border dark:border-[#1f2d27] border-[#e3ece7] focus:border-naija rounded-xl px-3 py-2.5 text-sm outline-none mb-2 text-center font-mono">
-          <div class="text-xs text-red-400 mb-2" x-show="tokenMsg" x-text="tokenMsg"></div>
+          <div class="text-xs text-red-400 mb-2" role="alert" x-show="tokenMsg" x-text="tokenMsg"></div>
           <button @click="submitToken()" :disabled="tokenChecking" class="w-full bg-naija hover:bg-naija-soft text-white text-sm font-semibold rounded-xl py-2.5 disabled:opacity-50">
             <span x-text="tokenChecking?'Checking...':'Use token'"></span>
           </button>
@@ -373,11 +399,12 @@
 
   <!-- Engineering calculators (user-selected tools) -->
   <div x-show="toolsModal" x-cloak @keydown.escape.window="toolsModal=false" class="fixed inset-0 z-[55] grid place-items-center bg-black/50 backdrop-blur-sm p-4" @click.self="toolsModal=false">
-    <div class="w-full max-w-lg max-h-[85vh] overflow-hidden flex flex-col rounded-2xl border dark:border-[#1f2d27] border-[#e3ece7] dark:bg-[#0f1714] bg-white shadow-2xl">
+    <div data-modal role="dialog" aria-modal="true" aria-labelledby="np-tools-title" tabindex="-1"
+      class="w-full max-w-lg max-h-[85vh] overflow-hidden flex flex-col rounded-2xl border dark:border-[#1f2d27] border-[#e3ece7] dark:bg-[#0f1714] bg-white shadow-2xl outline-none">
       <div class="flex items-center gap-2 px-5 py-3.5 border-b dark:border-[#1f2d27] border-[#e3ece7]">
-        <button x-show="toolSel" @click="backToTools()" class="text-base opacity-70 hover:opacity-100">←</button>
-        <h2 class="font-bold text-sm">🧮 <span x-text="toolSel ? toolSel.label : 'Engineering calculators'"></span></h2>
-        <button @click="toolsModal=false" class="ml-auto text-sm opacity-60 hover:opacity-100">✕</button>
+        <button x-show="toolSel" @click="backToTools()" aria-label="Back to the calculator list" class="text-base opacity-70 hover:opacity-100">←</button>
+        <h2 id="np-tools-title" class="font-bold text-sm">🧮 <span x-text="toolSel ? toolSel.label : 'Engineering calculators'"></span></h2>
+        <button @click="toolsModal=false" aria-label="Close calculators" class="ml-auto text-sm opacity-60 hover:opacity-100">✕</button>
       </div>
 
       <!-- list -->
@@ -399,13 +426,13 @@
             <template x-for="a in toolSel.args" :key="a.name">
               <label class="text-xs">
                 <span class="block opacity-65 mb-1" x-text="a.label + (a.opt?' (optional)':'')"></span>
-                <input type="number" step="any" x-model="toolArgs[a.name]" @keydown.enter="runSelectedTool()"
+                <input type="number" step="any" x-model="toolArgs[a.name]" @keydown.enter="$event.preventDefault(); runSelectedTool()"
                   class="w-full dark:bg-[#0a130f] bg-white border dark:border-[#1f2d27] border-[#e3ece7] focus:border-naija rounded-lg px-2.5 py-2 text-sm outline-none">
               </label>
             </template>
           </div>
         </template>
-        <div class="text-xs text-red-400" x-show="toolError" x-text="toolError"></div>
+        <div class="text-xs text-red-400" role="alert" x-show="toolError" x-text="toolError"></div>
         <button @click="runSelectedTool()" :disabled="toolBusy" class="w-full bg-naija hover:bg-naija-soft text-white text-sm font-semibold rounded-xl py-2.5 disabled:opacity-50">
           <span x-text="toolBusy?'Computing...':'Compute'"></span>
         </button>
@@ -424,7 +451,7 @@
             <div class="mt-3 pt-3 border-t border-naija/20">
               <div class="text-[10px] uppercase tracking-wide opacity-55 mb-1" x-text="toolResult.series.title"></div>
               <div class="relative w-full max-w-full h-44 sm:h-52">
-                <canvas x-ref="toolChart" class="max-w-full"></canvas>
+                <canvas x-ref="toolChart" role="img" :aria-label="`Chart: ${toolResult.series.title || 'calculated curve'}`" class="max-w-full"></canvas>
               </div>
             </div>
           </template>
@@ -435,11 +462,12 @@
 
   <!-- Onboarding guide -->
   <div x-show="guideModal" x-cloak @keydown.escape.window="closeGuide()" class="fixed inset-0 z-[58] grid place-items-center bg-black/60 backdrop-blur-sm p-4">
-    <div class="w-full max-w-md rounded-2xl border dark:border-[#1f2d27] border-[#e3ece7] dark:bg-[#0f1714] bg-white p-6 shadow-2xl">
+    <div data-modal role="dialog" aria-modal="true" aria-labelledby="np-guide-title" tabindex="-1"
+      class="w-full max-w-md rounded-2xl border dark:border-[#1f2d27] border-[#e3ece7] dark:bg-[#0f1714] bg-white p-6 shadow-2xl outline-none">
       <div class="flex items-center gap-3 mb-3">
-        <div class="w-11 h-11 rounded-2xl bg-gradient-to-br from-naija to-naija-deep grid place-items-center text-xl">🛢️</div>
+        <div class="w-11 h-11 rounded-2xl bg-gradient-to-br from-naija to-naija-deep grid place-items-center text-xl" aria-hidden="true">🛢️</div>
         <div>
-          <h2 class="text-lg font-bold leading-tight">Welcome to Naija-Petro</h2>
+          <h2 id="np-guide-title" class="text-lg font-bold leading-tight">Welcome to Naija-Petro</h2>
           <div class="text-[11px] text-naija-soft/90">Nigeria-aware petroleum engineering AI</div>
         </div>
       </div>
@@ -448,7 +476,7 @@
         <div class="flex gap-2.5"><span>📚</span><span><span class="font-medium">Grounded and cited.</span> Answers pull from Nigerian sources and show citations you can open.</span></div>
         <div class="flex gap-2.5"><span>🧮</span><span><span class="font-medium">Calculators.</span> Open the 🧮 menu to run exact engineering calculations: OOIP, IPR, decline, PVT, and more.</span></div>
         <div class="flex gap-2.5"><span>↩︎</span><span><span class="font-medium">Long answers.</span> If a reply gets cut off, click Continue or type "continue" to finish it.</span></div>
-        <div class="flex gap-2.5"><span>⏳</span><span><span class="font-medium">First answer is slow.</span> The model scales to zero to save cost, so the first question after a quiet spell takes about 30 to 60 seconds to spin up the GPU. It is fast after that, and a status indicator shows it is working.</span></div>
+        <div class="flex gap-2.5"><span>⏳</span><span><span class="font-medium">The first answer is slow.</span> The model scales to zero to save cost, so the first question after a quiet spell takes about 3 to 5 minutes while the GPU boots and the weights load. Everything after that is fast, and a status indicator shows it is still working.</span></div>
         <div class="flex gap-2.5"><span>🔑</span><span><span class="font-medium">Free to try.</span> <span x-text="dailyLimit"></span> questions a day. Have an access token? Click the 🔑 button to remove the limit.</span></div>
       </div>
       <button @click="closeGuide()" class="w-full bg-naija hover:bg-naija-soft text-white text-sm font-semibold rounded-xl py-2.5">Start exploring</button>
@@ -458,15 +486,43 @@
 </div>
 
 <script>
+/* ---- Storage, URL and HTML helpers ---------------------------------------
+   localStorage can throw outright: private browsing, cookies blocked for the
+   site, or an embedded context with third-party storage disabled. These reads
+   used to run while Alpine built the component, so a SecurityError took the
+   whole page down before it painted a single pixel. Everything goes through
+   this shim now and falls back to an in-memory store for the session. */
+const npMem = {};
+function lsGet(k){
+  try{ const v=window.localStorage.getItem(k); if(v!==null) return v; }catch(e){}
+  return Object.prototype.hasOwnProperty.call(npMem,k) ? npMem[k] : null;
+}
+function lsSet(k,v){ npMem[k]=String(v); try{ window.localStorage.setItem(k,String(v)); }catch(e){} }
+function lsDel(k){ delete npMem[k]; try{ window.localStorage.removeItem(k); }catch(e){} }
+
+function escHtml(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+/* Source URLs are crawled data, so they are treated as untrusted. Anything that
+   is not http, https or mailto (javascript:, data:, vbscript:) becomes inert. */
+function safeUrl(u){
+  const s=String(u==null?'':u).trim();
+  if(!s) return '#';
+  if(/^(https?:|mailto:)/i.test(s)) return s;
+  if(/^\/\//.test(s)) return 'https:'+s;
+  if(/^[a-z][a-z0-9+.\-]*:/i.test(s)) return '#';
+  return s;                                    // relative path, harmless
+}
+
 function app(){
   return {
     messages: [], input:'', busy:false, dark:true, reasoningOn:false,
+    ctrl:null, reqId:0,
     emailModal:false, email:'', wantsUpdates:true, subscribed:false, emailError:'',
-    units:(localStorage.getItem('np_units')||'field'),
+    units:(lsGet('np_units')||'field'),
     showHistory:false, sessions:[],
     showFeature:false, featureText:'', featureSent:false, featureError:'',
-    uploading:false, uploadMsg:'',
-    accessToken:(localStorage.getItem('np_token')||''), tokenOk:false, tokenModal:false,
+    uploading:false, uploadMsg:'', _upTimer:null,
+    accessToken:(lsGet('np_token')||''), tokenOk:false, tokenModal:false,
     tokenInput:'', tokenMsg:'', tokenChecking:false, dailyLimit:10, limitReached:false,
     toolsModal:false, tools:[], toolSel:null, toolArgs:{}, toolResult:null, toolError:'', toolBusy:false,
     guideModal:false, warmed:false,
@@ -479,30 +535,33 @@ function app(){
       "Screening criteria for CO2 EOR in Niger Delta reservoirs?",
     ],
     async init(){
-      this.dark = (localStorage.getItem('np_theme')||'dark')==='dark';
+      this.dark = (lsGet('np_theme')||'dark')==='dark';
       document.documentElement.classList.toggle('dark', this.dark);
-      marked.setOptions({ breaks:true, gfm:true });
+      try{ marked.setOptions({ breaks:true, gfm:true }); }catch(e){}
+      // Queue the first-run modals before any network call: /healthz hanging must
+      // not be able to swallow the onboarding guide. dailyLimit is reactive, so a
+      // late answer still lands in the copy.
+      if(lsGet('np_guide')!=='1'){ setTimeout(()=>{ this.guideModal=true; this.$nextTick(()=>npFocusModal()); }, 400); }
+      else if(lsGet('np_sub')!=='1'){ setTimeout(()=>{ this.emailModal=true; this.$nextTick(()=>npFocusModal()); }, 800); }
       // Open to test. Read the daily free limit and validate any saved access token.
       try{
         const hd = await (await fetch('/healthz')).json();
-        if(hd.daily_limit!=null) this.dailyLimit = hd.daily_limit;
+        if(hd && hd.daily_limit!=null) this.dailyLimit = hd.daily_limit;
       }catch(e){}
       if(this.accessToken){
         try{
           const d = await (await fetch('/token/check?token='+encodeURIComponent(this.accessToken))).json();
-          this.tokenOk = !!d.valid;
-          if(!d.valid){ this.accessToken=''; localStorage.removeItem('np_token'); }
+          this.tokenOk = !!(d && d.valid);
+          if(!this.tokenOk){ this.accessToken=''; lsDel('np_token'); }
         }catch(e){}
       }
       this.refreshKb();
-      if(localStorage.getItem('np_guide')!=='1'){ setTimeout(()=>{ this.guideModal=true; }, 400); }
-      else if(localStorage.getItem('np_sub')!=='1'){ setTimeout(()=>{ this.emailModal=true; }, 800); }
     },
-    openGuide(){ this.guideModal=true; },
-    closeGuide(){ this.guideModal=false; localStorage.setItem('np_guide','1'); if(localStorage.getItem('np_sub')!=='1'){ setTimeout(()=>{ this.emailModal=true; }, 500); } },
+    openGuide(){ this.guideModal=true; this.$nextTick(()=>npFocusModal()); },
+    closeGuide(){ this.guideModal=false; lsSet('np_guide','1'); if(lsGet('np_sub')!=='1'){ setTimeout(()=>{ this.emailModal=true; this.$nextTick(()=>npFocusModal()); }, 500); } },
     async openTools(){
       this.toolsModal=true; this.toolError=''; this.toolSel=null; this.toolResult=null;
-      this.syncToolChart();
+      this.syncToolChart(); this.$nextTick(()=>npFocusModal());
       if(!this.tools.length){ try{ const r=await this.apiFetch('/tools'); if(r.ok){ const d=await r.json(); this.tools=d.calculators||[]; } }catch(e){} }
     },
     selectTool(t){ this.toolSel=t; this.toolResult=null; this.toolError=''; this.toolArgs={}; this.syncToolChart(); },
@@ -550,22 +609,28 @@ function app(){
       opts.headers = Object.assign({}, opts.headers||{}, this.accessToken ? {'X-Access-Token': this.accessToken} : {});
       return fetch(url, opts);
     },
-    openToken(){ this.tokenMsg=''; this.tokenModal=true; },
+    openToken(){ this.tokenMsg=''; this.tokenModal=true; this.$nextTick(()=>npFocusModal()); },
     async submitToken(){
       const k=(this.tokenInput||'').trim();
       if(!k){ this.tokenMsg='Enter your access token.'; return; }
       this.tokenChecking=true; this.tokenMsg='';
       try{
         const d = await (await fetch('/token/check?token='+encodeURIComponent(k))).json();
-        if(d.valid){ this.accessToken=k; localStorage.setItem('np_token',k); this.tokenOk=true; this.limitReached=false; this.tokenInput=''; this.tokenMsg=''; }
+        if(d && d.valid){ this.accessToken=k; lsSet('np_token',k); this.tokenOk=true; this.limitReached=false; this.tokenInput=''; this.tokenMsg=''; }
         else { this.tokenMsg='That token is not valid or has been deactivated.'; }
       }catch(e){ this.tokenMsg='Network error, please try again.'; }
       finally{ this.tokenChecking=false; }
     },
-    clearToken(){ this.accessToken=''; this.tokenOk=false; localStorage.removeItem('np_token'); this.tokenInput=''; this.tokenMsg=''; },
-    toggleTheme(){ this.dark=!this.dark; document.documentElement.classList.toggle('dark', this.dark); localStorage.setItem('np_theme', this.dark?'dark':'light'); npRestyleCharts(); },
+    clearToken(){ this.accessToken=''; this.tokenOk=false; lsDel('np_token'); this.tokenInput=''; this.tokenMsg=''; },
+    toggleTheme(){ this.dark=!this.dark; document.documentElement.classList.toggle('dark', this.dark); lsSet('np_theme', this.dark?'dark':'light'); npRestyleCharts(); },
     autosize(el){ el.style.height='auto'; el.style.height=Math.min(el.scrollHeight,160)+'px'; },
-    scrollDown(){ this.$nextTick(()=>{ this.$refs.scroll.scrollTop=this.$refs.scroll.scrollHeight; }); },
+    // Stay pinned to the newest text only when the reader is already at the
+    // bottom, so scrolling up mid-answer no longer yanks the view back down.
+    scrollDown(force){
+      const el=this.$refs.scroll; if(!el) return;
+      if(force!==true && (el.scrollHeight - el.scrollTop - el.clientHeight) > 140) return;
+      this.$nextTick(()=>{ const e2=this.$refs.scroll; if(e2) e2.scrollTop=e2.scrollHeight; });
+    },
     stageLabel(s){ return ({starting:'Connecting', searching:'Searching Nigerian sources', retrieving:'Searching sources', reasoning:'Warming the model', generating:'Generating'})[s] || 'Working'; },
 
     splitThink(raw){
@@ -575,20 +640,32 @@ function app(){
       if(o!==-1) return { reasoning: raw.slice(o+7), answer:'', thinking:true };
       return { reasoning:'', answer:raw, thinking:false };
     },
+    // Model text -> markdown -> sanitised HTML. Math is stashed before marked
+    // sees it (marked would mangle backslashes and underscores) and restored
+    // afterwards for KaTeX.
     render(text, sources){
       const math=[];
-      const stash = (m)=>{ math.push(m); return `@@M${math.length-1}@@`; };
-      text = (text||'')
-        .replace(/\$\$([\s\S]+?)\$\$/g, stash)
-        .replace(/\\\[([\s\S]+?)\\\]/g, stash)
-        .replace(/\\\(([\s\S]+?)\\\)/g, stash);
-      let html = marked.parse(text);
-      html = html.replace(/@@M(\d+)@@/g, (_,i)=>math[i]);
+      const stash=(m)=>{ math.push(m); return '@@M'+(math.length-1)+'@@'; };
+      // Code is matched first and left alone. Stashing math blindly meant a `$$`
+      // inside a fence was pulled out, and the raw text was pasted back into the
+      // rendered <pre>, so HTML in a code sample stopped being escaped.
+      const SEG=/((?:```|~~~)[\s\S]*?(?:```|~~~|$)|`[^`\n]*`)|\$\$([\s\S]+?)\$\$|\\\[([\s\S]+?)\\\]|\\\(([\s\S]+?)\\\)/g;
+      const src=String(text||'').replace(SEG, (m, code)=> code!==undefined ? m : stash(m));
+      let html;
+      try{ html=marked.parse(src); }
+      catch(e){ return escHtml(String(text||'')); }        // marked blocked or broken
+      // Restore escaped: "$$a < b$$" must reach KaTeX as text, not as a stray tag.
+      html=html.replace(/@@M(\d+)@@/g, (mm,i)=> math[i]!==undefined ? escHtml(math[i]) : mm);
       if(sources && sources.length){
-        const byN = Object.fromEntries(sources.map(s=>[s.n, String(s.url||'').replace(/"/g,'%22')]));
-        html = html.replace(/\[(\d{1,2})\]/g, (m,n)=> byN[n] ? `<a class="cite" href="${byN[n]}" target="_blank" rel="noopener">${n}</a>` : m);
+        const byN={};
+        sources.forEach(s=>{ if(s && s.n!=null) byN[String(s.n)]=safeUrl(s.url).replace(/"/g,'%22'); });
+        html=html.replace(/\[(\d{1,2})\]/g, (m,n)=> Object.prototype.hasOwnProperty.call(byN,n)
+          ? '<a class="cite" href="'+byN[n]+'" target="_blank" rel="noopener noreferrer">'+n+'</a>' : m);
       }
-      return DOMPurify.sanitize(html, { ADD_ATTR:['target'] });
+      // Belt and braces: DOMPurify already drops javascript: hrefs, safeUrl above
+      // means one never gets built in the first place.
+      try{ return DOMPurify.sanitize(html, { ADD_ATTR:['target'] }); }
+      catch(e){ return escHtml(String(text||'')); }         // DOMPurify blocked: never emit raw HTML
     },
     typeset(){ this.$nextTick(()=>{ try{ if(window.renderMathInElement) renderMathInElement(this.$refs.scroll, {
       delimiters:[{left:'\\[',right:'\\]',display:true},{left:'$$',right:'$$',display:true},{left:'\\(',right:'\\)',display:false}], throwOnError:false }); }catch(e){} }); },
@@ -596,6 +673,62 @@ function app(){
     async refreshKb(){ try{ const r=await this.apiFetch('/kb/stats'); if(r.ok){ const d=await r.json(); if(d&&d.documents!=null) this.kb=d; } }catch(e){} },
 
     isContinueCmd(q){ return /^(continue|continue the answer|go on|keep going|carry on|finish( it)?|more)\.?$/i.test((q||'').trim()); },
+
+    // ---- streaming plumbing -------------------------------------------------
+    // One SSE reader for both /chat calls, so a fix lands on both paths. It is
+    // guaranteed to terminate: the request is abortable (Stop, New chat, opening
+    // a saved chat) and a watchdog kills a connection that has gone completely
+    // silent, which the server never does. It heartbeats a status event every 8
+    // seconds while the GPU boots, so silence means the socket is dead.
+    newAbort(){ this.ctrl = (typeof AbortController!=='undefined') ? new AbortController() : null; return this.ctrl; },
+    abortStream(){ try{ if(this.ctrl) this.ctrl.abort(); }catch(e){} this.ctrl=null; },
+    stop(){ this.abortStream(); },
+    isAbort(e){ return !!e && (e.name==='AbortError' || e.code===20); },
+    async readStream(resp, ctrl, onEvent){
+      if(!resp.body || !resp.body.getReader) throw new Error('This browser cannot stream the answer.');
+      const reader=resp.body.getReader(); const dec=new TextDecoder();
+      let buf='', sawDone=false, timer=null;
+      const arm=()=>{
+        if(timer) clearTimeout(timer);
+        timer=setTimeout(()=>{ try{ if(ctrl){ ctrl.npTimedOut=true; ctrl.abort(); } }catch(e){} }, 300000);
+      };
+      try{
+        arm();
+        while(true){
+          const {value,done}=await reader.read();
+          arm();
+          if(done) break;
+          buf+=dec.decode(value,{stream:true});
+          let idx;
+          while((idx=buf.indexOf('\n\n'))>=0){
+            const line=buf.slice(0,idx).trim(); buf=buf.slice(idx+2);
+            if(!line.startsWith('data:')) continue;
+            let evt; try{ evt=JSON.parse(line.slice(5).trim()); }catch(e){ continue; }
+            if(!evt || !evt.type) continue;
+            if(evt.type==='done') sawDone=true;
+            // A throwing handler must not kill the rest of the stream.
+            try{ onEvent(evt); }catch(e){}
+          }
+        }
+      } finally {
+        if(timer) clearTimeout(timer);
+        try{ const p=reader.cancel(); if(p&&p.catch) p.catch(()=>{}); }catch(e){}
+      }
+      return sawDone;
+    },
+    // Re-rendering markdown on every single token is quadratic and janks long
+    // answers on a phone, so painting is throttled and always forced at the end.
+    painter(m){
+      let last=0;
+      return (force)=>{
+        const n=Date.now();
+        if(force!==true && n-last<70) return;
+        last=n;
+        m.html=this.render(m.answer, m.sources);
+        this.scrollDown();
+      };
+    },
+
     async send(text){
       const q=(text||this.input).trim(); if(!q||this.busy) return;
       const last=this.messages[this.messages.length-1];
@@ -604,70 +737,117 @@ function app(){
         return this.continueAnswer(last);
       }
       this.input=''; if(this.$refs.ta) this.$refs.ta.style.height='auto';
+      const rid = ++this.reqId;
       this.busy=true;
-      this.messages.push({ role:'user', content:q });
-      const history = this.messages.filter(x=>x.role==='user'||x.role==='assistant').slice(-7,-1).map(x=>({role:x.role, content:(x.answer||x.content||'')}));
-      this.messages.push({ role:'assistant', raw:'', reasoning:'', answer:'', html:'', sources:[], meta:null, streaming:true, stage:'starting', thinking:false, showReason:false, error:null, followups:[], feedback:0, traceId:null, query:q, showComment:false, comment:'', commentSent:false, tools:[], truncated:false });
-      const m = this.messages[this.messages.length-1];
-      this.scrollDown();
+      // Everything after busy=true lives in the try, so no throw can strand the
+      // composer with Send disabled and nothing in flight.
+      let m=null;
+      const ctrl=this.newAbort();
       try{
+        this.messages.push({ role:'user', content:q });
+        const history = this.messages.filter(x=>x.role==='user'||x.role==='assistant').slice(-7,-1).map(x=>({role:x.role, content:(x.answer||x.content||'')}));
+        this.messages.push({ role:'assistant', raw:'', reasoning:'', answer:'', html:'', sources:[], meta:null, streaming:true, stage:'starting', thinking:false, showReason:false, error:null, followups:[], feedback:0, traceId:null, query:q, showComment:false, comment:'', commentSent:false, tools:[], truncated:false });
+        m = this.messages[this.messages.length-1];
+        this.scrollDown(true);
+        const paint=this.painter(m);
         const resp = await this.apiFetch('/chat', { method:'POST', headers:{'Content-Type':'application/json'},
+          signal: ctrl ? ctrl.signal : undefined,
           body: JSON.stringify({ message:q, session_id:this.sessionId, user_id:this.userId, history, reasoning:this.reasoningOn, units:this.units }) });
         if(!resp.ok){
-          const j = await resp.json().catch(()=>({}));
-          if(resp.status===429 && j.limit==='daily'){ this.limitReached=true; m.error=j.error||"You have reached today's free limit."; this.openToken(); return; }
+          const j = await resp.json().catch(()=>({}));   // a proxy error page is not JSON
+          if(resp.status===429 && j.limit==='daily'){
+            this.limitReached=true;
+            m.error = j.error || `You have used your ${this.dailyLimit} free questions for today. Enter an access token to keep going, or come back tomorrow.`;
+            this.openToken();
+            return;
+          }
           throw new Error(j.error || (resp.status===429 ? 'You are sending requests too quickly. Please wait a moment.' : ('Request failed ('+resp.status+')')));
         }
-        const reader=resp.body.getReader(); const dec=new TextDecoder(); let buf='';
-        while(true){
-          const {value,done}=await reader.read(); if(done) break;
-          buf+=dec.decode(value,{stream:true}); let idx;
-          while((idx=buf.indexOf('\n\n'))>=0){
-            const line=buf.slice(0,idx).trim(); buf=buf.slice(idx+2);
-            if(!line.startsWith('data:')) continue;
-            let evt; try{ evt=JSON.parse(line.slice(5).trim()); }catch(e){ continue; }
-            if(evt.type==='status'){ m.stage=evt.stage; }
-            else if(evt.type==='meta'){ m.sources=evt.sources||[]; m.meta=evt; m.traceId=evt.trace_id||null; if(evt.kb_added) this.refreshKb(); }
-            else if(evt.type==='tool'){ m.tools.push({name:evt.name, args:evt.args, result:evt.result}); this.scrollDown(); }
-            else if(evt.type==='token'){ m.raw+=evt.t; const p=this.splitThink(m.raw); m.reasoning=p.reasoning; m.thinking=p.thinking; m.answer=p.answer; m.html=this.render(m.answer, m.sources); this.scrollDown(); }
-            else if(evt.type==='followups'){ m.followups=evt.items||[]; }
-            else if(evt.type==='done'){ m.streaming=false; m.thinking=false; m.truncated=!!evt.truncated; m.html=this.render(m.answer,m.sources); this.typeset(); }
-            else if(evt.type==='error'){ m.error=evt.message; m.streaming=false; m.thinking=false; }
-          }
+        this.limitReached=false;
+        const sawDone = await this.readStream(resp, ctrl, (evt)=>{
+          if(evt.type==='status'){ m.stage=evt.stage; }
+          else if(evt.type==='meta'){ m.sources=evt.sources||[]; m.meta=evt; m.traceId=evt.trace_id||null; if(evt.kb_added) this.refreshKb(); }
+          else if(evt.type==='tool'){ m.tools.push({name:evt.name, args:evt.args, result:evt.result}); this.scrollDown(); }
+          else if(evt.type==='token'){ m.raw+=evt.t; const p=this.splitThink(m.raw); m.reasoning=p.reasoning; m.thinking=p.thinking; m.answer=p.answer; paint(false); }
+          else if(evt.type==='followups'){ m.followups=evt.items||[]; }
+          else if(evt.type==='done'){ m.streaming=false; m.thinking=false; m.truncated=!!evt.truncated; paint(true); this.typeset(); }
+          else if(evt.type==='error'){ m.error=evt.message; m.streaming=false; m.thinking=false; }
+        });
+        // The socket closed without a done event: the answer was cut short.
+        // Say so, and offer Continue rather than pretending it finished.
+        if(!sawDone && !m.error){
+          if(m.answer) m.truncated=true;
+          else m.error='The connection dropped before the answer arrived. Please try again.';
         }
-      }catch(e){ m.error=String(e.message||e); }
-      finally{ m.streaming=false; m.thinking=false; this.busy=false; this.refreshKb(); this.typeset(); this.scrollDown(); this.$nextTick(()=>this.$refs.ta&&this.$refs.ta.focus()); }
+      }catch(e){
+        if(m){
+          if(this.isAbort(e)){
+            const timedOut = !!(ctrl && ctrl.npTimedOut);
+            if(m.answer) m.truncated=true;
+            if(timedOut && !m.answer) m.error='The server stopped responding. Please try again.';
+            else if(!m.answer) m.error='Stopped.';
+          }
+          else m.error=String((e&&e.message)||e);
+        }
+      }
+      finally{
+        if(m){ m.streaming=false; m.thinking=false; m.html=this.render(m.answer, m.sources); }
+        // Only the newest request owns the busy flag: a slow abort landing after
+        // the user already started another question must not unlock the composer.
+        if(rid===this.reqId){
+          this.busy=false; this.ctrl=null;
+          this.refreshKb(); this.typeset(); this.scrollDown();
+          this.$nextTick(()=>{ if(this.$refs.ta) this.$refs.ta.focus(); });
+        }
+      }
     },
 
     async continueAnswer(m){
       if(this.busy || m.streaming) return;
+      const rid = ++this.reqId;
       this.busy=true; m.streaming=true; m.truncated=false; m.error=null; m.stage='reasoning';
-      const history=this.messages.filter(x=>x.role==='user'||x.role==='assistant').map(x=>({role:x.role, content:(x.answer||x.content||'')})).slice(-8);
-      this.scrollDown();
+      const ctrl=this.newAbort();
+      const paint=this.painter(m);
+      let finished=false;
       try{
+        const history=this.messages.filter(x=>x.role==='user'||x.role==='assistant').map(x=>({role:x.role, content:(x.answer||x.content||'')})).slice(-8);
+        this.scrollDown(true);
         const resp=await this.apiFetch('/chat',{ method:'POST', headers:{'Content-Type':'application/json'},
+          signal: ctrl ? ctrl.signal : undefined,
           body: JSON.stringify({ message:'continue', session_id:this.sessionId, user_id:this.userId, history, reasoning:false, units:this.units, continuation:true }) });
         if(!resp.ok){
           const j=await resp.json().catch(()=>({}));
-          if(resp.status===429 && j.limit==='daily'){ this.limitReached=true; this.openToken(); return; }
+          if(resp.status===429 && j.limit==='daily'){
+            this.limitReached=true;
+            m.error = j.error || `You have used your ${this.dailyLimit} free questions for today. Enter an access token to keep going, or come back tomorrow.`;
+            this.openToken();
+            return;
+          }
           throw new Error(j.error || ('Request failed ('+resp.status+')'));
         }
-        const reader=resp.body.getReader(); const dec=new TextDecoder(); let buf='';
-        while(true){
-          const {value,done}=await reader.read(); if(done) break;
-          buf+=dec.decode(value,{stream:true}); let idx;
-          while((idx=buf.indexOf('\n\n'))>=0){
-            const line=buf.slice(0,idx).trim(); buf=buf.slice(idx+2);
-            if(!line.startsWith('data:')) continue;
-            let evt; try{ evt=JSON.parse(line.slice(5).trim()); }catch(e){ continue; }
-            if(evt.type==='status'){ m.stage=evt.stage; }
-            else if(evt.type==='token'){ m.raw+=evt.t; const p=this.splitThink(m.raw); m.reasoning=p.reasoning; m.answer=p.answer; m.html=this.render(m.answer,m.sources); this.scrollDown(); }
-            else if(evt.type==='done'){ m.truncated=!!evt.truncated; }
-            else if(evt.type==='error'){ m.error=evt.message; }
-          }
+        this.limitReached=false;
+        const sawDone=await this.readStream(resp, ctrl, (evt)=>{
+          if(evt.type==='status'){ m.stage=evt.stage; }
+          else if(evt.type==='token'){ m.raw+=evt.t; const p=this.splitThink(m.raw); m.reasoning=p.reasoning; m.answer=p.answer; paint(false); }
+          else if(evt.type==='done'){ finished=true; m.truncated=!!evt.truncated; }
+          else if(evt.type==='error'){ m.error=evt.message; }
+        });
+        if(!sawDone && !m.error) m.error='The connection dropped before the rest of the answer arrived.';
+      }catch(e){
+        if(!this.isAbort(e)) m.error=String((e&&e.message)||e);
+        else if(ctrl && ctrl.npTimedOut) m.error='The server stopped responding. Please try again.';
+      }
+      finally{
+        // truncated was cleared optimistically at the top. If the continuation
+        // never completed, put it back, or a cut-off answer can never be finished.
+        if(!finished && m.answer) m.truncated=true;
+        m.streaming=false; m.thinking=false; m.html=this.render(m.answer, m.sources);
+        if(rid===this.reqId){
+          this.busy=false; this.ctrl=null;
+          this.typeset(); this.scrollDown();
+          this.$nextTick(()=>{ if(this.$refs.ta) this.$refs.ta.focus(); });
         }
-      }catch(e){ m.error=String(e.message||e); }
-      finally{ m.streaming=false; m.thinking=false; this.busy=false; m.html=this.render(m.answer,m.sources); this.typeset(); this.scrollDown(); this.$nextTick(()=>this.$refs.ta&&this.$refs.ta.focus()); }
+      }
     },
 
     fbPayload(m){ return { session_id:this.sessionId, user_id:this.userId, query:m.query, rating:m.feedback, trace_id:m.traceId, answer:m.answer, sources:m.sources, comment:m.comment||'' }; },
@@ -680,7 +860,7 @@ function app(){
       m.commentSent=true; m.showComment=false;
       try{ await this.apiFetch('/feedback', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(this.fbPayload(m)) }); }catch(e){}
     },
-    openEmail(){ this.emailError=''; this.emailModal=true; },
+    openEmail(){ this.emailError=''; this.emailModal=true; this.$nextTick(()=>npFocusModal()); },
     dismissEmail(){ this.emailModal=false; },   // close for now; reappears next time the app opens
     async subscribe(){
       const e=(this.email||'').trim();
@@ -688,29 +868,33 @@ function app(){
       this.emailError='';
       try{
         const r=await this.apiFetch('/subscribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:e, wants_updates:this.wantsUpdates})});
-        if(r.ok){ this.subscribed=true; localStorage.setItem('np_sub','1'); setTimeout(()=>{ this.emailModal=false; }, 1500); }
+        if(r.ok){ this.subscribed=true; lsSet('np_sub','1'); setTimeout(()=>{ this.emailModal=false; }, 1500); }
         else { const d=await r.json().catch(()=>({})); this.emailError=d.error||'Could not save right now.'; }
       }catch(err){ this.emailError='Network error, please try again.'; }
     },
-    toggleUnits(){ this.units = this.units==='field'?'si':'field'; localStorage.setItem('np_units', this.units); },
+    toggleUnits(){ this.units = this.units==='field'?'si':'field'; lsSet('np_units', this.units); },
     async openHistory(){
-      this.showHistory=true;
+      this.showHistory=true; this.$nextTick(()=>npFocusModal());
       try{ const r=await this.apiFetch('/history?user_id='+encodeURIComponent(this.userId)); if(r.ok){ const d=await r.json(); this.sessions=d.sessions||[]; } }catch(e){}
     },
-    newChat(){ this.messages=[]; this.sessionId=uid(); this.showHistory=false; this.$nextTick(()=>npPruneCharts()); },
+    // Leaving a chat drops the stream with it. Without the abort the old answer
+    // kept arriving into a message that is no longer on screen, and busy stayed
+    // true, so Send was dead until it finished.
+    newChat(){ this.abortStream(); this.reqId++; this.busy=false; this.messages=[]; this.sessionId=uid(); this.showHistory=false; this.$nextTick(()=>npPruneCharts()); },
     async openSession(sid){
+      this.abortStream(); this.reqId++; this.busy=false;
       this.showHistory=false;
       try{
         const r=await this.apiFetch('/history/'+encodeURIComponent(sid)); if(!r.ok) return;
         const d=await r.json(); this.messages=[];
         for(const t of (d.turns||[])){
           if(t.role==='user') this.messages.push({role:'user', content:t.content});
-          else this.messages.push({role:'assistant', raw:t.content, reasoning:'', answer:t.content, html:this.render(t.content,[]), sources:[], meta:null, streaming:false, thinking:false, showReason:false, error:null, followups:[], feedback:0, traceId:null, query:'', showComment:false, comment:'', commentSent:false, tools:[]});
+          else this.messages.push({role:'assistant', raw:t.content, reasoning:'', answer:t.content, html:this.render(t.content,[]), sources:[], meta:null, streaming:false, thinking:false, showReason:false, error:null, followups:[], feedback:0, traceId:null, query:'', showComment:false, comment:'', commentSent:false, tools:[], truncated:false});
         }
-        this.sessionId=sid; this.typeset(); this.scrollDown(); this.$nextTick(()=>npPruneCharts());
+        this.sessionId=sid; this.typeset(); this.scrollDown(true); this.$nextTick(()=>npPruneCharts());
       }catch(e){}
     },
-    openFeature(){ this.featureError=''; this.featureSent=false; this.showFeature=true; },
+    openFeature(){ this.featureError=''; this.featureSent=false; this.showFeature=true; this.$nextTick(()=>npFocusModal()); },
     async submitFeature(){
       const t=(this.featureText||'').trim();
       if(t.length<3){ this.featureError='Please describe the feature.'; return; }
@@ -730,14 +914,86 @@ function app(){
         if(r.ok && d.ok){ this.uploadMsg = d.inserted ? `Added "${d.filename}" (${d.chunks} chunks). You can ask about it now.` : `"${d.filename}" is already in the knowledge base.`; this.refreshKb(); }
         else { this.uploadMsg = (d.error||'Upload failed.'); }
       }catch(e){ this.uploadMsg='Upload failed.'; }
-      finally{ this.uploading=false; ev.target.value=''; setTimeout(()=>{ this.uploadMsg=''; }, 7000); }
+      finally{
+        this.uploading=false; ev.target.value='';
+        // a second upload must not have its notice wiped by the first one's timer
+        if(this._upTimer) clearTimeout(this._upTimer);
+        this._upTimer=setTimeout(()=>{ this.uploadMsg=''; }, 7000);
+      }
     },
-    copy(text, ev){ navigator.clipboard.writeText(text||'').then(()=>{ if(ev&&ev.target){ const t=ev.target.textContent; ev.target.textContent='✓ Copied'; setTimeout(()=>ev.target.textContent=t,1200); } }); },
-    exportMd(m){ const blob=new Blob([m.answer||''],{type:'text/markdown'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='naija-petro-answer.md'; a.click(); URL.revokeObjectURL(a.href); },
+    // navigator.clipboard is undefined on plain http and can reject when the
+    // document is not focused, so there is a fallback and the failure is visible
+    // rather than a silently unhandled promise.
+    copy(text, ev){
+      const btn = ev && (ev.currentTarget || ev.target);
+      const flash=(msg)=>{ if(!btn) return; const t=btn.textContent; btn.textContent=msg; setTimeout(()=>{ btn.textContent=t; }, 1200); };
+      const legacy=()=>{
+        try{
+          const ta=document.createElement('textarea');
+          ta.value=text||''; ta.setAttribute('readonly','');
+          ta.style.position='fixed'; ta.style.top='-1000px'; ta.style.opacity='0';
+          document.body.appendChild(ta); ta.select();
+          const ok=document.execCommand('copy');
+          document.body.removeChild(ta);
+          flash(ok?'✓ Copied':'Copy failed');
+        }catch(e){ flash('Copy failed'); }
+      };
+      try{
+        if(navigator.clipboard && navigator.clipboard.writeText){
+          navigator.clipboard.writeText(text||'').then(()=>flash('✓ Copied'), legacy);
+        } else legacy();
+      }catch(e){ legacy(); }
+    },
+    // Firefox will not follow a click on an anchor that is not in the document,
+    // and revoking the blob URL in the same tick can cancel the download.
+    exportMd(m){
+      try{
+        const url=URL.createObjectURL(new Blob([m.answer||''],{type:'text/markdown'}));
+        const a=document.createElement('a');
+        a.href=url; a.download='naija-petro-answer.md'; a.style.display='none';
+        document.body.appendChild(a); a.click();
+        setTimeout(()=>{ try{ a.remove(); URL.revokeObjectURL(url); }catch(e){} }, 1000);
+      }catch(e){}
+    },
   }
 }
-function uid(){ return (crypto.randomUUID? crypto.randomUUID(): 's'+Date.now()+Math.random().toString(16).slice(2)); }
-function persistUid(){ let u=localStorage.getItem('np_uid'); if(!u){ u=uid(); localStorage.setItem('np_uid',u); } return u; }
+function uid(){
+  try{ if(window.crypto && crypto.randomUUID) return crypto.randomUUID(); }catch(e){}
+  return 's'+Date.now()+Math.random().toString(16).slice(2);
+}
+function persistUid(){ let u=lsGet('np_uid'); if(!u){ u=uid(); lsSet('np_uid',u); } return u; }
+
+/* ---- Modal keyboard handling ---------------------------------------------
+   The modals are plain divs. Rather than rebuild them, one document listener
+   keeps Tab inside whichever dialog is on top, and opening a dialog moves focus
+   to its container (not its first input, so a phone keyboard does not jump up).
+   A hidden modal has display:none, so offsetParent is null and it is skipped. */
+function npTopModal(){
+  const boxes=Array.prototype.slice.call(document.querySelectorAll('[data-modal]')).filter(b=>b.offsetParent!==null);
+  if(!boxes.length) return null;
+  let best=boxes[0], bz=-1;
+  boxes.forEach(b=>{
+    let z=0;
+    try{ z=parseInt(window.getComputedStyle(b.offsetParent||b).zIndex,10)||0; }catch(e){}
+    if(z>=bz){ bz=z; best=b; }
+  });
+  return best;
+}
+function npFocusModal(){
+  const b=npTopModal(); if(!b) return;
+  try{ b.focus({preventScroll:true}); }catch(e){ try{ b.focus(); }catch(e2){} }
+}
+document.addEventListener('keydown', function(e){
+  if(e.key!=='Tab') return;
+  const box=npTopModal(); if(!box) return;
+  const sel='a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
+  const list=Array.prototype.slice.call(box.querySelectorAll(sel)).filter(el=>el.offsetParent!==null);
+  if(!list.length) return;
+  const first=list[0], last=list[list.length-1], cur=document.activeElement;
+  if(!box.contains(cur)){ e.preventDefault(); first.focus(); return; }
+  if(e.shiftKey && cur===first){ e.preventDefault(); last.focus(); }
+  else if(!e.shiftKey && cur===last){ e.preventDefault(); first.focus(); }
+}, true);
 
 /* ---- Inline calculator charts (Chart.js) ---------------------------------
    Chart instances are kept OUTSIDE Alpine state on purpose: a Chart wrapped in
