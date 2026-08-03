@@ -7,8 +7,10 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import hmac
 import json
 import logging
+import math
 import os
 import re
 import time
@@ -135,9 +137,147 @@ class TokenCreateRequest(BaseModel):
 
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
+# Caller-supplied opaque ids (session_id, user_id) are echoed into PostgREST
+# filters, Langfuse attributes and analytics rows, so they are bounded here.
+_ID_MAX_CHARS = 128
+_CTRL_RE = re.compile(r"[\x00-\x1f\x7f]")
+
+# `history` is caller-supplied and goes straight into the prompt, so it is
+# bounded in count, size and role before it can reach the model. The UI sends at
+# most 8 turns of at most ~4k characters (max_new_tokens is 1024), so these caps
+# never clip real traffic; they only stop a hand-written request from filling the
+# context window or smuggling in a system turn.
+_HISTORY_MAX_TURNS = 12
+_HISTORY_MAX_CHARS_PER_TURN = 6000
+# Derived from the model window rather than fixed: at roughly 3.2 characters per
+# token, a flat 24000 was ~7500 tokens of history alone, more than the whole 8192
+# window before a single retrieved source or generated token. Quarter of the
+# window leaves room for the sources, which are the point of the app.
+_HISTORY_MAX_CHARS_TOTAL = max(4000, int(settings.max_model_len * 3.2 * 0.25))
+_HISTORY_ROLES = ("user", "assistant")
+
+# Free continuations per IP per day, as a multiple of the daily question limit:
+# finishing a cut-off answer can legitimately take a few rounds, but not an
+# unbounded number. Token holders are exempt.
+_CONTINUATIONS_PER_DAY = 3
+
+
+# --- /upload limits ---
+_UPLOAD_MAX_BYTES = 8_000_000
+_UPLOAD_CHUNK_BYTES = 1 << 20
+_UPLOAD_MAX_PER_HOUR = 10
+# extract_upload only knows how to read a PDF or decode text, and anything else
+# decodes to mojibake that still passes the 50-character check and gets embedded
+# into the shared knowledge base, so the accepted set is spelled out.
+_UPLOAD_SUFFIXES = (".pdf", ".txt", ".text", ".md", ".markdown", ".csv", ".tsv", ".json", ".log")
+_UPLOAD_TYPES = ("application/pdf", "application/json", "application/x-ndjson")
+
+
+def _clean_filename(name) -> str:
+    """A display-safe, bounded filename.
+
+    It is echoed back to the caller, stored as the document title and used to
+    build `upload://<title>`, and multipart headers are not length-limited.
+    """
+    if not isinstance(name, str):
+        return ""
+    name = _CTRL_RE.sub("", name).replace("\\", "/").rsplit("/", 1)[-1].strip()
+    return name[:200]
+
+
+def _upload_type_ok(filename: str, content_type) -> bool:
+    ctype = (content_type or "").split(";")[0].strip().lower()
+    if filename.lower().endswith(_UPLOAD_SUFFIXES):
+        return True
+    return ctype.startswith("text/") or ctype in _UPLOAD_TYPES
+
+
+def _json_safe(value, _depth: int = 0):
+    """Replace non-finite floats with null so a payload can always be encoded.
+
+    Starlette renders JSONResponse with allow_nan=False, so a single inf or nan
+    anywhere in a calculator result turns a 200 into an unhandled 500; in an SSE
+    frame json.dumps emits `Infinity`, which is not JSON and which the browser
+    drops on the floor. Overflowing but perfectly legal inputs reach both paths
+    (hydrostatic_pressure with 1e308 ppg, or a "nan" string argument).
+    """
+    if _depth > 20:            # caller-supplied args can nest; do not recurse forever
+        return None
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {k: _json_safe(v, _depth + 1) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(v, _depth + 1) for v in value]
+    return value
+
+
+def _clean_id(value, limit: int = _ID_MAX_CHARS) -> str:
+    """Bound an opaque, client-generated id (session_id / user_id).
+
+    Nothing server-side ever validated these, so an oversized or control-character
+    id silently broke every downstream write (PostgREST filter, analytics row,
+    saved history) inside a best-effort swallow.
+    """
+    if not isinstance(value, str):
+        return ""
+    return _CTRL_RE.sub("", value).strip()[:limit]
+
+
+def _clean_history(raw) -> list[dict]:
+    """Bound and role-filter caller-supplied conversation history.
+
+    Only user/assistant turns survive: build_messages splices history straight
+    into the message list, so an unfiltered request could inject its own system
+    turn and replace SYSTEM_PROMPT. Content must be a string (a dict or int there
+    blows up the chat template as a 500-equivalent error event) and the whole
+    block is capped so a large history cannot push the prompt past the context
+    window. Over-long turns keep their tail, which is what a continuation needs.
+    """
+    if not isinstance(raw, list):
+        return []
+    turns: list[dict] = []
+    for item in raw[-_HISTORY_MAX_TURNS * 4:]:     # bound the scan itself
+        if not isinstance(item, dict):
+            continue
+        role = item.get("role")
+        content = item.get("content")
+        if role not in _HISTORY_ROLES or not isinstance(content, str):
+            continue
+        content = content.strip()
+        if not content:
+            continue
+        if len(content) > _HISTORY_MAX_CHARS_PER_TURN:
+            content = content[-_HISTORY_MAX_CHARS_PER_TURN:]
+        turns.append({"role": role, "content": content})
+
+    turns = turns[-_HISTORY_MAX_TURNS:]
+    total = 0
+    kept: list[dict] = []
+    for turn in reversed(turns):                   # drop the oldest turns first
+        total += len(turn["content"])
+        if kept and total > _HISTORY_MAX_CHARS_TOTAL:
+            break
+        kept.append(turn)
+    kept.reverse()
+    return kept
+
 
 def _sse(kind: str, **data) -> str:
-    return f"data: {json.dumps({'type': kind, **data})}\n\n"
+    return f"data: {json.dumps(_json_safe({'type': kind, **data}))}\n\n"
+
+
+def _store_error(where: str, exc: Exception, status: int = 503) -> JSONResponse:
+    """Log the real failure, hand the caller a generic one.
+
+    str(exc) on an httpx/PostgREST error carries the Supabase host, the schema
+    name and the database's own message. Several of these endpoints are
+    unauthenticated, so returning it was an infrastructure disclosure to anyone
+    who could make a store call fail, and nothing was written to the log either.
+    """
+    log.warning("%s failed: %s: %s", where, type(exc).__name__, exc)
+    return JSONResponse({"error": "The knowledge store is unavailable right now."},
+                        status_code=status)
 
 
 async def _pump_tokens(llm_stream, messages, sampling):
@@ -148,24 +288,47 @@ async def _pump_tokens(llm_stream, messages, sampling):
     agen = llm_stream(messages, sampling).__aiter__()
     nxt = asyncio.ensure_future(agen.__anext__())
     truncated = False
-    while True:
-        try:
-            tok = await asyncio.wait_for(asyncio.shield(nxt), timeout=8)
-        except asyncio.TimeoutError:
-            yield ("status", "reasoning")
-            continue
-        except StopAsyncIteration:
-            break
-        if tok == STREAM_TRUNCATED:
-            truncated = True
+    try:
+        while True:
+            try:
+                tok = await asyncio.wait_for(asyncio.shield(nxt), timeout=8)
+            except asyncio.TimeoutError:
+                yield ("status", "reasoning")
+                continue
+            except StopAsyncIteration:
+                break
+            if tok == STREAM_TRUNCATED:
+                truncated = True
+            else:
+                yield ("token", tok)
+            nxt = asyncio.ensure_future(agen.__anext__())
+        yield ("truncated", truncated)
+    finally:
+        # A client that hangs up mid-answer closes this generator. Without a
+        # teardown the in-flight read was just abandoned: the task pins the
+        # backend generator, so the stream stayed open until that read resolved
+        # (on a cold GPU, the whole time to first token) and was then only
+        # released by the garbage collector, and a read that failed instead
+        # surfaced as a bare "Task exception was never retrieved" with no
+        # request context attached.
+        if nxt.done():
+            # Suspended on a yield: the read already resolved, so the generator
+            # is idle and can be closed properly.
+            try:
+                await agen.aclose()
+            except Exception as e:
+                log.warning("llm stream close failed: %s: %s", type(e).__name__, e)
         else:
-            yield ("token", tok)
-        nxt = asyncio.ensure_future(agen.__anext__())
-    yield ("truncated", truncated)
+            # Suspended on a heartbeat with a read still in flight; cancelling
+            # the read is what unwinds the generator and drops the connection.
+            nxt.cancel()
 
 
 # Strong refs to in-flight warm-ups: a bare task can be garbage collected mid-run.
 _warm_tasks: set = set()
+
+# Same, for analytics writes detached after a client disconnect.
+_record_tasks: set = set()
 
 
 async def _run_warm(warm_llm) -> None:
@@ -176,22 +339,59 @@ async def _run_warm(warm_llm) -> None:
     """
     try:
         await asyncio.to_thread(warm_llm)
-    except Exception:
-        pass
+    except asyncio.CancelledError:
+        raise
+    except Exception as e:
+        # Swallowed on purpose (a warm-up must never affect a request), but not
+        # silently: a broken pre-boot only shows up as every answer being slow.
+        log.warning("gpu warm-up failed: %s: %s", type(e).__name__, e)
 
 
 # --- simple in-memory rate limiter (per web container) ---
+# Entries are expiry stamps (hit time + window), not hit times, so the sweep can
+# retire a key without knowing which window it was counted under.
 _hits: dict = defaultdict(deque)
+_last_prune = 0.0
+_PRUNE_EVERY_S = 300
+# Backstop for a flood of one-shot IPs between sweeps. ~100k deques is a few MB.
+_MAX_HIT_KEYS = 100_000
+
+
+def _prune_hits(now: float) -> None:
+    """Drop keys whose window has fully elapsed.
+
+    `_hits` only ever grew: one deque per hashed IP the container had ever seen,
+    kept for the life of the container. Memory tracked total unique visitors
+    rather than active ones, so a long-lived web container leaked steadily.
+    """
+    global _last_prune
+    _last_prune = now
+    for key in list(_hits.keys()):
+        dq = _hits.get(key)
+        if dq is None:
+            continue
+        while dq and dq[0] <= now:
+            dq.popleft()
+        if not dq:
+            _hits.pop(key, None)
 
 
 def _rate_ok(key: str, max_n: int, window_s: int) -> bool:
     now = time.time()
+    # Sweep on a timer, or sooner under a key flood, but never more than once
+    # every few seconds: the sweep is O(keys) and runs on the request path.
+    if (now - _last_prune > _PRUNE_EVERY_S
+            or (len(_hits) > _MAX_HIT_KEYS and now - _last_prune > 5)):
+        over = len(_hits) > _MAX_HIT_KEYS
+        _prune_hits(now)
+        if over and len(_hits) > _MAX_HIT_KEYS:
+            log.warning("rate-limiter holding %d live keys after a sweep", len(_hits))
     dq = _hits[key]
-    while dq and dq[0] < now - window_s:
+    while dq and dq[0] <= now:
         dq.popleft()
     if len(dq) >= max_n:
         return False
-    dq.append(now)
+    dq.append(now + window_s)
     return True
 
 
@@ -214,10 +414,17 @@ def create_app(deps: Deps) -> FastAPI:
     # /admin panel (token management) is guarded by settings.admin_token.
     def _admin_ok(request: Request) -> bool:
         tok = request.headers.get("x-admin-token") or request.query_params.get("admin", "")
-        return bool(settings.admin_token) and tok == settings.admin_token
+        # compare_digest, not ==: a plain comparison returns as soon as it finds a
+        # differing byte, which leaks the token prefix by prefix to anyone willing
+        # to time the responses. The endpoint is public and unthrottled. Compare
+        # bytes, because compare_digest raises on non-ASCII str input.
+        return bool(settings.admin_token) and hmac.compare_digest(
+            tok.encode("utf-8", "ignore"), settings.admin_token.encode("utf-8"))
 
     def _req_token(request: Request) -> str:
-        return (request.headers.get("x-access-token") or request.query_params.get("token", "")).strip()
+        # Bounded: it is a query parameter that becomes a PostgREST filter.
+        return (request.headers.get("x-access-token")
+                or request.query_params.get("token", "")).strip()[:_ID_MAX_CHARS]
 
     def _fire_warm() -> bool:
         """Trigger a GPU pre-boot, never blocking and never raising. Returns
@@ -229,7 +436,8 @@ def create_app(deps: Deps) -> FastAPI:
             task = asyncio.ensure_future(_run_warm(deps.warm_llm))
             _warm_tasks.add(task)
             task.add_done_callback(_warm_tasks.discard)
-        except Exception:
+        except Exception as e:
+            log.warning("could not schedule gpu warm-up: %s: %s", type(e).__name__, e)
             return False
         return True
 
@@ -254,7 +462,8 @@ def create_app(deps: Deps) -> FastAPI:
             if not _rate_ok("w:global", settings.warm_max_per_hour, 3600):
                 return {"warming": False}
             return {"warming": _fire_warm()}
-        except Exception:
+        except Exception as e:
+            log.warning("/warm failed: %s: %s", type(e).__name__, e)
             return {"warming": False}
 
     @api.get("/healthz")
@@ -266,8 +475,11 @@ def create_app(deps: Deps) -> FastAPI:
     @api.get("/token/check")
     async def token_check(token: str = ""):
         try:
-            return {"valid": await db.token_active(token.strip())}
-        except Exception:
+            return {"valid": await db.token_active(token.strip()[:_ID_MAX_CHARS])}
+        except Exception as e:
+            # Fails closed on purpose, but a store outage makes every valid token
+            # look invalid, so it must not be invisible.
+            log.warning("token check failed: %s: %s", type(e).__name__, e)
             return {"valid": False}
 
     # ----- Admin panel API (guarded by X-Admin-Token) -----
@@ -282,7 +494,7 @@ def create_app(deps: Deps) -> FastAPI:
         try:
             return {"tokens": await db.list_tokens()}
         except Exception as e:
-            return JSONResponse({"error": str(e)}, status_code=503)
+            return _store_error("admin token list", e)
 
     @api.post("/admin/api/tokens/toggle")
     async def admin_toggle(req: TokenToggleRequest, request: Request):
@@ -292,7 +504,7 @@ def create_app(deps: Deps) -> FastAPI:
             await db.set_token_active(int(req.id), bool(req.active))
             return {"ok": True}
         except Exception as e:
-            return JSONResponse({"error": str(e)}, status_code=503)
+            return _store_error("admin token toggle", e)
 
     @api.post("/admin/api/tokens/create")
     async def admin_create(req: TokenCreateRequest, request: Request):
@@ -310,7 +522,7 @@ def create_app(deps: Deps) -> FastAPI:
             await db.create_token(token, label, kind)
             return {"ok": True, "token": token, "label": label, "kind": kind}
         except Exception as e:
-            return JSONResponse({"error": str(e)}, status_code=503)
+            return _store_error("admin token create", e)
 
     @api.get("/admin/api/stats")
     async def admin_stats(request: Request):
@@ -319,29 +531,43 @@ def create_app(deps: Deps) -> FastAPI:
         try:
             return await db.usage_overview(14)
         except Exception as e:
-            return JSONResponse({"error": str(e)}, status_code=503)
+            return _store_error("admin stats", e)
 
     @api.get("/kb/stats")
     async def kb_stats():
         try:
             return await db.kb_stats()
         except Exception as e:
-            return JSONResponse({"error": str(e)}, status_code=503)
+            return _store_error("kb stats", e)
 
     @api.post("/feedback")
     async def feedback(fb: FeedbackRequest):
+        # Public, unauthenticated write into the preference/training table, so the
+        # payload is bounded and the rating is forced to the three values the UI
+        # can actually send (it also becomes a Langfuse numeric score).
+        payload = fb.model_dump()
+        payload["rating"] = max(-1, min(1, int(fb.rating or 0)))
+        payload["session_id"] = _clean_id(fb.session_id)
+        payload["user_id"] = _clean_id(fb.user_id)
+        payload["trace_id"] = _clean_id(fb.trace_id)
+        payload["query"] = (fb.query or "")[:settings.max_query_chars]
+        payload["comment"] = (fb.comment or "")[:2000]
+        payload["answer"] = (fb.answer or "")[:40000]
+        payload["sources"] = (fb.sources or [])[:50]
         try:
-            await db.log_feedback(fb.model_dump())
-        except Exception:
-            pass
+            await db.log_feedback(payload)
+        except Exception as e:
+            # Best-effort, but this is the preference data the fine-tune feeds on:
+            # a silent swallow means the pipeline can be dead for months.
+            log.warning("feedback write failed: %s: %s", type(e).__name__, e)
         try:
             client = obs.get_client()
-            if client and fb.trace_id and fb.rating:
-                client.create_score(name="user_feedback", value=fb.rating,
-                                    trace_id=fb.trace_id, data_type="NUMERIC")
-                client.flush()
-        except Exception:
-            pass
+            if client and payload["trace_id"] and payload["rating"]:
+                client.create_score(name="user_feedback", value=payload["rating"],
+                                    trace_id=payload["trace_id"], data_type="NUMERIC")
+                await asyncio.to_thread(client.flush)
+        except Exception as e:
+            log.warning("feedback score failed: %s: %s", type(e).__name__, e)
         return {"ok": True}
 
     @api.post("/subscribe")
@@ -351,7 +577,8 @@ def create_app(deps: Deps) -> FastAPI:
             return JSONResponse({"error": "Please enter a valid email."}, status_code=400)
         try:
             await db.subscribe(email, bool(req.wants_updates), source="app")
-        except Exception:
+        except Exception as e:
+            log.warning("subscribe failed: %s: %s", type(e).__name__, e)
             return JSONResponse({"error": "Could not save right now."}, status_code=503)
         return {"ok": True}
 
@@ -365,7 +592,11 @@ def create_app(deps: Deps) -> FastAPI:
 
     @api.post("/tools/run")
     async def tools_run(req: ToolRunRequest):
-        return run_tool(req.name, req.args)
+        # run_tool already turns a bad argument set into {"error": ...}, but it
+        # cannot stop a well-formed argument from overflowing to inf (1e308 ppg)
+        # or arriving as "nan". Starlette renders JSON with allow_nan=False, so
+        # those results used to come back as an unhandled 500.
+        return _json_safe(run_tool(req.name, req.args))
 
     @api.post("/feature")
     async def feature(req: FeatureRequest):
@@ -373,8 +604,10 @@ def create_app(deps: Deps) -> FastAPI:
         if len(text) < 3:
             return JSONResponse({"error": "Please describe the feature."}, status_code=400)
         try:
-            await db.add_feature(text[:1000], (req.email or None), req.session_id)
-        except Exception:
+            await db.add_feature(text[:1000], ((req.email or "").strip()[:254] or None),
+                                 _clean_id(req.session_id))
+        except Exception as e:
+            log.warning("feature request write failed: %s: %s", type(e).__name__, e)
             return JSONResponse({"error": "Could not save right now."}, status_code=503)
         return {"ok": True}
 
@@ -383,42 +616,85 @@ def create_app(deps: Deps) -> FastAPI:
         try:
             return {"features": await db.list_features(20)}
         except Exception as e:
-            return JSONResponse({"error": str(e)}, status_code=503)
+            return _store_error("feature list", e)
 
     @api.get("/history")
     async def history(user_id: str = ""):
+        # Bounded before it becomes a PostgREST filter in a request URL.
+        user_id = _clean_id(user_id)
         if not user_id:
             return {"sessions": []}
         try:
             return {"sessions": await db.list_sessions(user_id, 25)}
         except Exception as e:
-            return JSONResponse({"error": str(e)}, status_code=503)
+            return _store_error("session list", e)
 
     @api.get("/history/{session_id}")
     async def history_session(session_id: str):
+        session_id = _clean_id(session_id)
+        if not session_id:
+            return {"turns": []}
         try:
             return {"turns": await db.load_session(session_id, 100)}
         except Exception as e:
-            return JSONResponse({"error": str(e)}, status_code=503)
+            return _store_error("session load", e)
 
     @api.post("/upload")
-    async def upload(file: UploadFile = File(...), session_id: str = Form(""), user_id: str = Form("")):
+    async def upload(request: Request, file: UploadFile = File(...),
+                     session_id: str = Form(""), user_id: str = Form("")):
         from app.rag import ingest
-        data = await file.read()
-        if len(data) > 8_000_000:
-            return JSONResponse({"error": "File too large (max 8 MB)."}, status_code=400)
+
+        # Unauthenticated, and every accepted file spends embedding GPU and lands
+        # in the knowledge base every visitor then reads, so it gets its own cap.
+        ip_hash = _hash_ip(_client_ip(request))
+        if not _rate_ok(f"u:{ip_hash}", _UPLOAD_MAX_PER_HOUR, 3600):
+            return JSONResponse({"error": "Too many uploads. Please try again later."}, status_code=429)
+
+        filename = _clean_filename(file.filename)
+        if not _upload_type_ok(filename, file.content_type):
+            return JSONResponse(
+                {"error": "Unsupported file type. Upload a PDF, text, markdown or CSV file."},
+                status_code=400)
+
+        # Read incrementally: `await file.read()` pulled the entire body into the
+        # web container before the size was ever checked, so the 8 MB limit did
+        # nothing to stop a 2 GB post from taking the container down with it.
+        chunks: list[bytes] = []
+        size = 0
+        while True:
+            block = await file.read(_UPLOAD_CHUNK_BYTES)
+            if not block:
+                break
+            size += len(block)
+            if size > _UPLOAD_MAX_BYTES:
+                return JSONResponse({"error": "File too large (max 8 MB)."}, status_code=400)
+            chunks.append(block)
+        data = b"".join(chunks)
+        if not data:
+            return JSONResponse({"error": "The file is empty."}, status_code=400)
+
         try:
-            text = await asyncio.to_thread(ingest.extract_upload, file.filename or "upload", data)
-            if len((text or "").strip()) < 50:
-                return JSONResponse({"error": "Could not extract readable text from this file."}, status_code=400)
-            res = await ingest.ingest_text(
-                text, (file.filename or "Uploaded document"), deps.embed, source_label="upload",
-                metadata={"filename": file.filename, "session_id": session_id, "user_id": user_id},
-            )
-            return {"ok": True, "filename": file.filename,
-                    "chunks": res.get("chunk_count", 0), "inserted": res.get("inserted", False)}
+            text = await asyncio.to_thread(ingest.extract_upload, filename or "upload", data)
         except Exception as e:
-            return JSONResponse({"error": f"Upload failed: {e}"}, status_code=500)
+            # Extraction runs on caller-controlled bytes, so a parser blowing up is
+            # expected traffic, not an incident: report it as a bad file and keep
+            # the parser's message (which can name internal paths) in the log.
+            log.warning("upload extraction failed for %r: %s: %s", filename, type(e).__name__, e)
+            return JSONResponse({"error": "Could not read this file."}, status_code=400)
+        if len((text or "").strip()) < 50:
+            return JSONResponse({"error": "Could not extract readable text from this file."}, status_code=400)
+
+        try:
+            res = await ingest.ingest_text(
+                text, (filename or "Uploaded document"), deps.embed, source_label="upload",
+                metadata={"filename": filename, "session_id": _clean_id(session_id),
+                          "user_id": _clean_id(user_id)},
+            )
+        except Exception as e:
+            log.warning("upload ingest failed for %r: %s: %s", filename, type(e).__name__, e)
+            return JSONResponse({"error": "Could not index this file right now."}, status_code=503)
+        return {"ok": True, "filename": filename,
+                "chunks": res.get("chunk_count", 0), "inserted": res.get("inserted", False)}
 
     @api.post("/chat")
     async def chat(req: ChatRequest, request: Request):
@@ -430,7 +706,9 @@ def create_app(deps: Deps) -> FastAPI:
             return JSONResponse({"error": f"Message too long (max {settings.max_query_chars})"}, status_code=400)
 
         ip_hash = _hash_ip(_client_ip(request))
-        sess = req.session_id or ip_hash
+        sess = _clean_id(req.session_id) or ip_hash
+        user_id = _clean_id(req.user_id)
+        history = _clean_history(req.history)
         country = request.headers.get("cf-ipcountry") or request.headers.get("x-vercel-ip-country")
 
         # Burst limit (anti-abuse) applies to everyone.
@@ -443,12 +721,35 @@ def create_app(deps: Deps) -> FastAPI:
         token = _req_token(request)
         try:
             has_token = await db.token_active(token) if token else False
-        except Exception:
+        except Exception as e:
+            # Fails closed: a store outage rate-limits paying token holders, which
+            # is the safe direction but must be visible in the logs.
+            log.warning("token lookup failed: %s: %s", type(e).__name__, e)
             has_token = False
+
+        # A continuation deliberately skips the daily check and returns before the
+        # analytics write, so it neither consumes nor counts a credit. That also
+        # makes it the one unmetered generation path: `continuation: true` plus a
+        # hand-written history is a free answer to any question, repeatable for
+        # ever, and only the burst limit stood in the way (200 GPU generations an
+        # hour per IP). Cap it per IP per day so the escape hatch stays one.
+        if req.continuation and not has_token and settings.free_daily_limit > 0:
+            if not _rate_ok(f"c:{ip_hash}", _CONTINUATIONS_PER_DAY * settings.free_daily_limit, 86400):
+                return JSONResponse(
+                    {"error": "You have used your free continuations for today. "
+                              "Come back tomorrow, or enter an access token to keep going.",
+                     "limit": "daily"},
+                    status_code=429,
+                )
+
         if not has_token and not req.continuation and settings.free_daily_limit > 0:
             try:
                 used = await db.daily_ip_count(ip_hash)
-            except Exception:
+            except Exception as e:
+                # Fails open on purpose (a store outage must not close the app),
+                # but that silently disables the daily limit, so it gets a log.
+                log.warning("daily count failed, letting the request through: %s: %s",
+                            type(e).__name__, e)
                 used = 0
             if used >= settings.free_daily_limit:
                 return JSONResponse(
@@ -470,19 +771,20 @@ def create_app(deps: Deps) -> FastAPI:
             result = None
             answer = ""
             truncated = False
+            # Hoisted so the analytics `finally` can still see a partial answer
+            # when the model dies mid-stream or the client hangs up: previously
+            # the join never ran on those paths and the turn was logged as zero
+            # characters even though the tokens had been generated and paid for.
+            parts: list[str] = []
+            disconnected = False
 
             # Continuation: finish a previously cut-off answer. No new retrieval,
             # sources, tools, or follow-ups; just keep generating from the history.
             if req.continuation:
-                hist = [
-                    {"role": h.get("role"), "content": h.get("content", "")}
-                    for h in (req.history or []) if h.get("role") in ("user", "assistant")
-                ]
-                cont_messages = [{"role": "system", "content": SYSTEM_PROMPT}] + hist + \
+                cont_messages = [{"role": "system", "content": SYSTEM_PROMPT}] + history + \
                     [{"role": "user", "content": CONTINUE_INSTRUCTION}]
                 cont_sampling = {**sampling, "reasoning": False}
                 try:
-                    parts: list[str] = []
                     async for kind, val in _pump_tokens(deps.llm_stream, cont_messages, cont_sampling):
                         if kind == "token":
                             parts.append(val)
@@ -494,12 +796,13 @@ def create_app(deps: Deps) -> FastAPI:
                     answer = "".join(parts)
                     yield _sse("done", chars=len(answer), truncated=truncated)
                 except Exception as e:
+                    log.warning("continuation stream failed: %s: %s", type(e).__name__, e)
                     yield _sse("error", message=str(e))
                 return
 
             yield _sse("status", stage="starting")
             try:
-                with obs.trace("chat", session_id=sess, user_id=req.user_id, input=msg) as tr:
+                with obs.trace("chat", session_id=sess, user_id=user_id, input=msg) as tr:
                     rerank_fn = deps.rerank if (settings.enable_rerank and deps.rerank) else None
 
                     # Boot the GPU now, not after retrieval: the weights load while
@@ -514,7 +817,7 @@ def create_app(deps: Deps) -> FastAPI:
                             break
                         except asyncio.TimeoutError:
                             yield _sse("status", stage="searching")
-                    messages, sources = build_messages(msg, result.chunks, req.history, reasoning=req.reasoning)
+                    messages, sources = build_messages(msg, result.chunks, history, reasoning=req.reasoning)
                     if (req.units or "field").lower() == "si":
                         messages[-1]["content"] = (
                             "Present all numeric results in SI units (metres, kPa or MPa, m3, sm3, "
@@ -533,8 +836,11 @@ def create_app(deps: Deps) -> FastAPI:
                     if settings.always_enrich and not result.enriched and deps.spawn_enrich:
                         try:
                             deps.spawn_enrich(msg)
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            # The self-updating knowledge base is exactly the kind
+                            # of background feature that can be dead for months
+                            # behind a bare `pass`.
+                            log.warning("enrichment spawn failed: %s: %s", type(e).__name__, e)
 
                     yield _sse(
                         "meta",
@@ -558,27 +864,40 @@ def create_app(deps: Deps) -> FastAPI:
                             )
                             obj = _parse_json_obj(sel)
                             if obj and obj.get("tool") in CALCULATORS:
-                                res = run_tool(obj["tool"], obj.get("args", {}))
+                                # Sanitised here as well as at the SSE frame. json.loads
+                                # accepts `Infinity` and `NaN`, so the model can hand
+                                # back a non-finite argument, and a finite one can still
+                                # overflow inside the calculator. Either way the literal
+                                # `Infinity` must not be written into the prompt as a
+                                # "verified" figure for the model to quote.
+                                args = _json_safe(obj.get("args") or {})
+                                if not isinstance(args, dict):
+                                    args = {}
+                                res = _json_safe(run_tool(obj["tool"], args))
                                 if "error" not in res:
-                                    yield _sse("tool", name=obj["tool"], args=obj.get("args", {}), result=res)
+                                    yield _sse("tool", name=obj["tool"], args=args, result=res)
                                     # Plot points go to the UI but never into the prompt:
                                     # a "series" can be dozens of values of pure context bloat.
                                     lean = {k: v for k, v in res.items() if k != "series"}
                                     note = (
                                         "A verified engineering calculator has already computed the exact result "
                                         "for this question:\n"
-                                        f"{obj['tool']}({json.dumps(obj.get('args', {}))}) = {json.dumps(lean)}\n"
+                                        f"{obj['tool']}({json.dumps(args)}) = {json.dumps(lean)}\n"
                                         "Report these exact figures as the answer. You may show the governing "
                                         "formula and explain the inputs, but state the verified numeric result "
                                         "above verbatim and do NOT redo the arithmetic or produce a different "
                                         "number.\n\n"
                                     )
                                     messages[-1]["content"] = note + messages[-1]["content"]
-                        except Exception:
-                            pass
+                        except asyncio.CancelledError:
+                            raise
+                        except Exception as e:
+                            # Best-effort: an unusable pre-pass must not cost the
+                            # user an answer. But a bare `pass` here is how a whole
+                            # feature stays dead without anyone noticing.
+                            log.warning("tool pre-pass failed: %s: %s", type(e).__name__, e)
 
                     # Stream tokens, heartbeating until the first token (LLM may be cold).
-                    parts: list[str] = []
                     async for kind, val in _pump_tokens(deps.llm_stream, messages, sampling):
                         if kind == "token":
                             parts.append(val)
@@ -625,28 +944,53 @@ def create_app(deps: Deps) -> FastAPI:
                             # Best-effort, but not silent: swallowing this is how the
                             # follow-up feature stayed broken without anyone noticing.
                             log.warning("follow-up generation failed: %s: %s", type(e).__name__, e)
+            except asyncio.CancelledError:
+                # The client hung up mid-stream. Nothing can be yielded any more,
+                # and every await from here on re-raises, so the analytics below
+                # are detached instead of awaited: a disconnect used to burn a
+                # full generation that was never counted against the daily limit.
+                disconnected = True
+                log.warning("chat stream cancelled after %d chars (client disconnect)",
+                            len("".join(parts)))
+                raise
             except Exception as e:  # surface errors to the client cleanly
+                log.warning("chat stream failed: %s: %s", type(e).__name__, e)
                 yield _sse("error", message=str(e))
             finally:
-                # Analytics (best-effort, never blocks or raises into the stream).
-                try:
-                    await db.log_usage({
-                        "session_id": sess, "user_id": req.user_id, "ip_hash": ip_hash,
-                        "country": country, "query": msg[:1000], "answer_chars": len(answer),
-                        "n_sources": (len(result.chunks) if result else 0),
-                        "coverage": (round(result.coverage, 4) if result else 0.0),
-                        "enriched": (bool(result.enriched) if result else False),
-                        "kb_added": (result.enrichment.get("new_chunks", 0) if result else 0),
-                        "reasoning": req.reasoning, "latency_ms": int((time.time() - t0) * 1000),
-                    })
-                except Exception:
-                    pass
-                # Saved history (best-effort)
-                try:
-                    if req.user_id and answer:
-                        await db.save_turns(req.user_id, sess, [("user", msg), ("assistant", answer)])
-                except Exception:
-                    pass
+                # An error or a disconnect skips the join above, so recover what
+                # was actually generated rather than logging the turn as empty.
+                if not answer and parts:
+                    answer = "".join(parts)
+
+                async def _record() -> None:
+                    # Analytics (best-effort, never raises into the stream). Note
+                    # db.daily_ip_count reads these rows, so a silent failure here
+                    # also silently disables the daily limit.
+                    try:
+                        await db.log_usage({
+                            "session_id": sess, "user_id": user_id or None, "ip_hash": ip_hash,
+                            "country": country, "query": msg[:1000], "answer_chars": len(answer),
+                            "n_sources": (len(result.chunks) if result else 0),
+                            "coverage": (round(result.coverage, 4) if result else 0.0),
+                            "enriched": (bool(result.enriched) if result else False),
+                            "kb_added": (result.enrichment.get("new_chunks", 0) if result else 0),
+                            "reasoning": req.reasoning, "latency_ms": int((time.time() - t0) * 1000),
+                        })
+                    except Exception as e:
+                        log.warning("usage write failed: %s: %s", type(e).__name__, e)
+                    # Saved history (best-effort)
+                    try:
+                        if user_id and answer:
+                            await db.save_turns(user_id, sess, [("user", msg), ("assistant", answer)])
+                    except Exception as e:
+                        log.warning("history write failed: %s: %s", type(e).__name__, e)
+
+                if disconnected:
+                    task = asyncio.ensure_future(_record())
+                    _record_tasks.add(task)          # a bare task can be collected mid-run
+                    task.add_done_callback(_record_tasks.discard)
+                else:
+                    await _record()
 
         return StreamingResponse(
             gen(),
