@@ -16,6 +16,7 @@ before deploying if you have more than one.
 """
 from __future__ import annotations
 
+import asyncio
 import os
 import subprocess
 import time
@@ -242,7 +243,18 @@ async def _llm_complete(messages: list[dict], sampling: dict) -> str:
 
 
 def _spawn_enrich(query: str) -> None:
-    enrich.spawn(query)
+    """Queue background enrichment without stalling the caller.
+
+    spawn() is a blocking control-plane round trip, and this is called from inside
+    the SSE generator, so doing it inline pauses token delivery for every reader
+    this container is serving (max_inputs=100). Hand it to a worker thread.
+    """
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:          # called outside the event loop, just do it
+        enrich.spawn(query)
+        return
+    loop.run_in_executor(None, enrich.spawn, query)
 
 
 def _warm_llm() -> None:

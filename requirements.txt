@@ -12,7 +12,8 @@ pymupdf4llm>=0.0.17
 langfuse>=4.0
 openai>=1.55
 
-# Direct Postgres, offline admin scripts only (scripts/seed_tokens.py)
+# Direct Postgres. Nothing in the app or scripts needs it now that seed_tokens.py
+# goes through the REST API too; kept only for ad-hoc psql-style work from Python.
 psycopg[binary]>=3.1
 
 # Hugging Face card push (scripts/push_cards.py)

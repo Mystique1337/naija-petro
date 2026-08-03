@@ -318,7 +318,8 @@ All settings live in `.env` (see [`.env.example`](.env.example)). The essentials
 |---|---|
 | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | Supabase REST endpoint and service-role key. This is how the app reads and writes the vector store, analytics, and history. |
 | `SUPABASE_DB_SCHEMA` | Postgres schema holding this app's tables and functions (default `naija_petro`). |
-| `SUPABASE_DB_URL` | Direct Postgres URL. Only for applying SQL and the offline admin scripts, not for the running app. |
+| `SUPABASE_DB_URL` | Direct Postgres URL. Only for applying SQL with `psql`, not for the running app or the scripts. |
+| `SUPABASE_REST_PATH` | Path prefix for the REST API (`/rest/v1` on Supabase, empty for a bare PostgREST). |
 | `TAVILY_API_KEY` | Live web retrieval of Nigerian sources. |
 | `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` | Prompt and RAG tracing. |
 | `HF_TOKEN` | Pushing the Hugging Face cards (`scripts/push_cards.py`). |
