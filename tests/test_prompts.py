@@ -6,6 +6,7 @@ from app.rag.prompts import (
     CITATION_INSTRUCTIONS,
     REASONING_DIRECTIVE,
     RetrievedChunk,
+    _window_budget,
     build_context,
     build_messages,
 )
@@ -97,6 +98,73 @@ def test_chunks_without_a_url_are_keyed_by_title():
 
 
 # --------------------------------------------------------------------------- #
+# Citation numbering must not collide
+# --------------------------------------------------------------------------- #
+def test_untitled_sources_from_different_places_do_not_share_a_citation():
+    """Keying on `source_url or title` made every untitled, url-less chunk the
+    same source, so one document was cited as another."""
+    c1 = RetrievedChunk(content="alpha body", source_url="", title="", domain="alpha.ng", source_tier=2)
+    c2 = RetrievedChunk(content="beta body", source_url="", title="", domain="beta.ng", source_tier=2)
+    context, sources = build_context([c1, c2])
+    assert len(sources) == 2
+    assert "[1]" in context and "[2]" in context
+
+
+def test_two_documents_sharing_a_url_are_cited_separately():
+    c1 = RetrievedChunk(content="2023 edition", source_url=A, title="NUPRC report 2023",
+                        domain="www.nuprc.gov.ng", source_tier=1)
+    c2 = RetrievedChunk(content="2024 edition", source_url=A, title="NUPRC report 2024",
+                        domain="www.nuprc.gov.ng", source_tier=1)
+    _context, sources = build_context([c1, c2])
+    assert [s["title"] for s in sources] == ["NUPRC report 2023", "NUPRC report 2024"]
+
+
+def test_citation_numbers_first_appear_in_ascending_order():
+    """Diversification reorders the chunks, so check numbering follows it."""
+    chunks = [chunk("a1", A), chunk("a2", A), chunk("b1", B), chunk("c1", C), chunk("b2", B)]
+    context, sources = build_context(chunks)
+    firsts = [context.index(f"[{s['n']}]") for s in sources]
+    assert firsts == sorted(firsts)
+    assert [s["n"] for s in sources] == [1, 2, 3]
+
+
+def test_empty_chunks_do_not_take_a_citation_number():
+    empty = RetrievedChunk(content="   ", source_url=A, title="Empty doc", domain="d", source_tier=1)
+    context, sources = build_context([empty, chunk("b1", B)])
+    assert len(sources) == 1
+    assert "b1" in context and "Empty doc" not in context
+
+
+# --------------------------------------------------------------------------- #
+# The context cannot overflow the model window
+# --------------------------------------------------------------------------- #
+def test_an_oversized_first_chunk_is_clipped_to_the_budget():
+    """The first chunk is always included, but a single 80k character chunk from
+    a document ingested before chunking bounded tables must not fill the window."""
+    huge = RetrievedChunk(content="x " * 40000, source_url=A, title="Huge table",
+                          domain="www.nuprc.gov.ng", source_tier=1)
+    context, sources = build_context([huge], budget=5000)
+    assert len(sources) == 1
+    assert len(context) <= 5200
+    assert "truncated" in context
+
+
+def test_the_context_never_exceeds_what_the_window_can_hold():
+    chunks = [chunk(f"m{i}", f"https://example{i}.com/a", size=4000) for i in range(60)]
+    context, _sources = build_context(chunks, budget=10 ** 7)
+    assert len(context) <= _window_budget() + 4200      # at most one chunk of overshoot
+
+
+def test_a_long_history_shrinks_the_context_instead_of_overflowing():
+    chunks = [chunk(f"m{i}", f"https://example{i}.com/a", size=3000) for i in range(20)]
+    long_history = [{"role": "user", "content": "q" * 30000},
+                    {"role": "assistant", "content": "a" * 30000}]
+    with_history, _ = build_messages("q", chunks, history=long_history)
+    without_history, _ = build_messages("q", chunks)
+    assert len(with_history[-1]["content"]) < len(without_history[-1]["content"])
+
+
+# --------------------------------------------------------------------------- #
 # build_messages
 # --------------------------------------------------------------------------- #
 def test_build_messages_starts_with_the_system_prompt_and_ends_with_the_user_turn():
@@ -144,3 +212,21 @@ def test_no_sources_variant_when_nothing_was_retrieved():
 def test_no_sources_variant_still_honours_the_reasoning_flag():
     messages, _ = build_messages("q", [], reasoning=True)
     assert messages[-1]["content"].startswith(REASONING_DIRECTIVE)
+
+
+# --------------------------------------------------------------------------- #
+# Citation instructions
+# --------------------------------------------------------------------------- #
+def test_the_prompt_names_the_markers_that_actually_exist():
+    """Naming the range is what stops the model inventing [7] out of four sources."""
+    one, _ = build_messages("q", [chunk("a1", A)])
+    three, _ = build_messages("q", [chunk("a1", A), chunk("b1", B), chunk("c1", C)])
+    assert "The only valid marker is [1]." in one[-1]["content"]
+    assert "The only valid markers are [1] to [3]." in three[-1]["content"]
+    assert "valid marker" not in build_messages("q", [])[0][-1]["content"]
+
+
+def test_the_citation_rules_are_explicit_and_show_an_example():
+    assert "[2]." in CITATION_INSTRUCTIONS, "the rules carry a worked example marker"
+    assert "## Sources" in CITATION_INSTRUCTIONS
+    assert len(CITATION_INSTRUCTIONS) < 1200, "rules must stay short enough to be read"
